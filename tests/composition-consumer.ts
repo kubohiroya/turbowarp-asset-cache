@@ -29,7 +29,7 @@ import {
   type VerifiedRemoteStoryCacheDeleteResult,
   type VerifiedRemoteStoryCacheInfo,
   type VerifiedRemoteStoryCachePruneResult
-} from '@kubohiroya/turbowarp-asset-manager/composition';
+} from '@kubohiroya/turbowarp-asset-cache/composition';
 
 const input: EmbeddedAssetBytesInput = {
   name: 'OpeningImage',

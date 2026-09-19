@@ -1,4 +1,4 @@
-import {AssetManagerError} from './asset-manager-error.js';
+import {AssetManagerError} from './asset-cache-error.js';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const XLINK_NAMESPACE = 'http://www.w3.org/1999/xlink';

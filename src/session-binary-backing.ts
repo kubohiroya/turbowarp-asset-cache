@@ -12,7 +12,7 @@ import type {
   OpfsBinaryObjectStoreOptions
 } from './binary-object-store.js';
 
-const DEFAULT_DATABASE_NAME = 'tw-asset-manager-session-binary-v1';
+const DEFAULT_DATABASE_NAME = 'tw-asset-cache-session-binary-v1';
 const DATABASE_VERSION = 1;
 const SESSION_STORE = 'sessions';
 const BUNDLE_STORE = 'sessionBinaryBundles';

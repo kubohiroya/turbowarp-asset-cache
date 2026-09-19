@@ -1,10 +1,12 @@
-# TurboWarp-Asset-Manager
+# TurboWarp-Asset-Cache
 
-An IndexedDB-backed image, audio, and runtime-text asset manager for TurboWarp projects, with an explicit OPFS hybrid binary backing for composition hosts. It registers external files, project-local costumes/backdrops/sounds, and Temporary Variables text references for use from TurboWarp blocks or composition hosts.
+A browser-local image, audio, and runtime-text asset cache for TurboWarp projects, with an explicit OPFS hybrid binary backing for composition hosts. It registers external files, project-local costumes/backdrops/sounds, and Temporary Variables text references for use from TurboWarp blocks or composition hosts.
+
+Asset Cache intentionally keeps the legacy `isLoaded` and cache lifecycle semantics. It is not a general server object store: every block is marked `server.supported: false` in the format 2 manifest. Use [`@kubohiroya/turbowarp-kvs`](https://github.com/kubohiroya/turbowarp-kvs) for portable namespace/key persistence and server lowering.
 
 ## User Guide
 
-For setup, safety notes, recipes, and the illustrated block guide, see the [English user guide](https://kubohiroya.github.io/turbowarp-asset-manager/) or [Japanese user guide](https://kubohiroya.github.io/turbowarp-asset-manager/ja/).
+For setup, safety notes, recipes, and the illustrated block guide, see the [English user guide](https://kubohiroya.github.io/turbowarp-asset-cache/) or [Japanese user guide](https://kubohiroya.github.io/turbowarp-asset-cache/ja/).
 
 ## What It Does
 
@@ -18,9 +20,9 @@ For setup, safety notes, recipes, and the illustrated block guide, see the [Engl
 
 ## Choose an Integration
 
-Use the Standalone extension when a TurboWarp project should load `dist/asset-manager.js` directly and expose Asset Manager blocks in the palette.
+Use the Standalone extension when a TurboWarp project should load `dist/asset-cache.js` directly and expose Asset Cache blocks in the palette.
 
-Use the Composition API when another unsandboxed extension or application shell should import `@kubohiroya/turbowarp-asset-manager/composition`, keep its registry private, and avoid adding Asset Manager blocks to the palette.
+Use the Composition API when another unsandboxed extension or application shell should import `@kubohiroya/turbowarp-asset-cache/composition`, keep its registry private, and avoid adding Asset Cache blocks to the palette.
 
 ## Requirements and Safety
 
@@ -32,25 +34,25 @@ Maintainers use Node.js 22 or later with pnpm through Corepack. The package vers
 
 ## Installation
 
-Download [`dist/asset-manager.js`](dist/asset-manager.js), then open TurboWarp Desktop and load it as a local custom extension. Enable **Run extension without sandbox** when prompted.
+Download [`dist/asset-cache.js`](dist/asset-cache.js), then open TurboWarp Desktop and load it as a local custom extension. Enable **Run extension without sandbox** when prompted.
 
 The built JavaScript file is committed to this repository so users do not need to install Node.js or run the build process.
 
 The versioned npm package contains the same reviewed build:
 
 ```bash
-pnpm add --save-exact @kubohiroya/turbowarp-asset-manager@0.16.0
+pnpm add --save-exact @kubohiroya/turbowarp-asset-cache@0.1.0
 ```
 
-Load `node_modules/@kubohiroya/turbowarp-asset-manager/dist/asset-manager.js`, or use the version-pinned CDN URL:
+Load `node_modules/@kubohiroya/turbowarp-asset-cache/dist/asset-cache.js`, or use the version-pinned CDN URL:
 
 ```text
-https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-manager@0.16.0/dist/asset-manager.js
+https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-cache@0.1.0/dist/asset-cache.js
 ```
 
 ## Quick Start
 
-1. Load `dist/asset-manager.js` as an unsandboxed TurboWarp extension.
+1. Load `dist/asset-cache.js` as an unsandboxed TurboWarp extension.
 2. Register a resource with `register resource [RESOURCE_ID] as asset [NAME]`.
 3. Use `show asset [NAME] on this sprite`, `set stage backdrop to asset [NAME]`, or the audio blocks to consume the asset.
 4. Use the cache and deletion blocks when project lifecycle or storage policy requires explicit cleanup.
@@ -58,7 +60,7 @@ https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-manager@0.16.0/dist/ass
 ## Composition Example
 
 ```js
-import {createAssetManagerComposition} from '@kubohiroya/turbowarp-asset-manager/composition';
+import {createAssetManagerComposition} from '@kubohiroya/turbowarp-asset-cache/composition';
 
 const assets = createAssetManagerComposition();
 await assets.registerEmbeddedAsset({
@@ -91,7 +93,7 @@ pnpm run check
 pnpm run docs
 ```
 
-The build produces `dist/asset-manager.js`, `dist/extension-manifest.json`, `dist/composition.js`, and `dist/types/composition.d.ts`. The deterministic manifest records the extension ID, every opcode and block type, and each argument ID, type, and menu reference for compatibility checks by tools such as `sb3-toolchain`. Commit rebuilt artifacts whenever extension, block metadata, or Composition source changes.
+The build produces `dist/asset-cache.js`, `dist/extension-manifest.json`, `dist/composition.js`, and `dist/types/composition.d.ts`. The deterministic format 2 manifest records every block signature and explicitly marks the complete Asset Cache palette as browser-only. Commit rebuilt artifacts whenever extension, block metadata, or Composition source changes.
 
 ## Release
 

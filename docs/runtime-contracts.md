@@ -2,7 +2,7 @@
 
 ## Extension ID compatibility
 
-This migration release uses the standards-compliant ID `kubohiroyaassetmanager`. Existing projects
+This migration release uses the standards-compliant ID `kubohiroyaassetcache`. Existing projects
 that store `twAssetManager` opcodes must apply a schema-aware project migration at the same time;
 replacing the JavaScript artifact alone would break their existing blocks.
 
@@ -22,7 +22,7 @@ replacing the JavaScript artifact alone would break their existing blocks.
 - preserve the last-started valid external download in both memory and IndexedDB;
 - optionally live-replace managed image and text displays after a same-kind registration;
 - optionally reject same-name public-kind changes, including external image/audio changes;
-- release only renderer skins owned by Asset Manager when registrations are removed.
+- release only renderer skins owned by Asset Cache when registrations are removed.
 
 The current-sprite block works with clones. A stage drawable ID of `0` is treated as valid. Project-local assets remain owned by the Scratch VM and are not written to IndexedDB. Text assets store only a runtime-variable name; they never copy or cache its value.
 
@@ -65,7 +65,7 @@ Runtime text rendering requires both TurboWarp extensions below to be loaded uns
 - [Temporary Variables](https://extensions.turbowarp.org/Lily/TempVariables2.js), extension ID `lmsTempVars2`;
 - [Animated Text](https://extensions.turbowarp.org/lab/text.js), extension ID `text`.
 
-Registering a text asset does not require the runtime variable to exist yet. The `set text asset [NAME] to [VALUE]` block stores the value in the internal `text:<NAME>` namespace. Each time the asset is shown, Asset Manager reads the latest value and style through `lmsTempVars2`, reapplies the complete style, and invokes Animated Text for the destination sprite or clone. Updating a text value also refreshes every sprite or clone currently displaying that asset. A missing runtime variable therefore displays an empty string. Missing extension dependencies are reported when a text value or style is set, or when the text asset is shown, rather than when it is registered.
+Registering a text asset does not require the runtime variable to exist yet. The `set text asset [NAME] to [VALUE]` block stores the value in the internal `text:<NAME>` namespace. Each time the asset is shown, Asset Cache reads the latest value and style through `lmsTempVars2`, reapplies the complete style, and invokes Animated Text for the destination sprite or clone. Updating a text value also refreshes every sprite or clone currently displaying that asset. A missing runtime variable therefore displays an empty string. Missing extension dependencies are reported when a text value or style is set, or when the text asset is shown, rather than when it is registered.
 
 The `set text asset [NAME] style [PROPERTY] to [VALUE]` block changes one style property at a time. An empty value resets that property to its default.
 
@@ -77,7 +77,7 @@ The `set text asset [NAME] style [PROPERTY] to [VALUE]` block changes one style 
 | `width` | Positive number | Current stage width |
 | `align` | `left`, `center`, `right` | `center` |
 
-`typing` is a DSL-friendly alias for Animated Text's `type` value. The full style is reapplied before every display so that a previous text asset or sprite cannot leak its style into the next one. When the installed Animated Text version supports outline controls, Asset Manager also applies a two-pixel black outline. Animated display starts in the background; the `show` action can immediately continue to its existing position and size steps without waiting for the animation to finish.
+`typing` is a DSL-friendly alias for Animated Text's `type` value. The full style is reapplied before every display so that a previous text asset or sprite cannot leak its style into the next one. When the installed Animated Text version supports outline controls, Asset Cache also applies a two-pixel black outline. Animated display starts in the background; the `show` action can immediately continue to its existing position and size steps without waiting for the animation to finish.
 
 The existing paper-theater `show` action can use text assets, so it retains the same position and size arguments without adding another DSL action:
 
@@ -93,11 +93,11 @@ textStyle=Narration:align:left
 action=Prompt:show:Narration:0,0,100
 ```
 
-The actor name in `actor=` and the target name in `action=` must match (`Prompt` in this example). The second `actor=` item, each `text=` / `textStyle=` item, and the `show` asset item all name the registered text asset (`Narration`). TM Kamishibai should map `text=` and `textStyle=` to Asset Manager's two setter blocks; Asset Manager itself does not parse the DSL.
+The actor name in `actor=` and the target name in `action=` must match (`Prompt` in this example). The second `actor=` item, each `text=` / `textStyle=` item, and the `show` asset item all name the registered text asset (`Narration`). TM Kamishibai should map `text=` and `textStyle=` to Asset Cache's two setter blocks; Asset Cache itself does not parse the DSL.
 
 ## Safe same-name replacement
 
-Three startup-fixed feature flags control optional rollouts. All default to `false`. A host can enable them by defining the configuration object before loading `dist/asset-manager.js`:
+Three startup-fixed feature flags control optional rollouts. All default to `false`. A host can enable them by defining the configuration object before loading `dist/asset-cache.js`:
 
 ```js
 globalThis.__TW_ASSET_MANAGER_FEATURE_FLAGS__ = {
@@ -107,9 +107,9 @@ globalThis.__TW_ASSET_MANAGER_FEATURE_FLAGS__ = {
 };
 ```
 
-With `ENABLE_LIVE_ASSET_REPLACEMENT`, registering the same public kind under an existing name prepares the new resource, commits the registry, reapplies only targets that Asset Manager still tracks as displaying that name, and then releases the old owned resource. Images and text refresh immediately. Text reads its latest body and complete style again, and a configured animation starts again from the beginning. Audio already playing is not interrupted; its next playback uses the new registration. Same-name commits run serially: a commit that has started finishes atomically, and the last-started successful registration remains afterward. A newer attempt that fails validation does not cancel an earlier valid one. If preparation, registry commit, or display reapply fails, Asset Manager restores the old registration and managed display.
+With `ENABLE_LIVE_ASSET_REPLACEMENT`, registering the same public kind under an existing name prepares the new resource, commits the registry, reapplies only targets that Asset Cache still tracks as displaying that name, and then releases the old owned resource. Images and text refresh immediately. Text reads its latest body and complete style again, and a configured animation starts again from the beginning. Audio already playing is not interrupted; its next playback uses the new registration. Same-name commits run serially: a commit that has started finishes atomically, and the last-started successful registration remains afterward. A newer attempt that fails validation does not cancel an earlier valid one. If preparation, registry commit, or display reapply fails, Asset Cache restores the old registration and managed display.
 
-Display bindings retain the target ID, asset name, public kind, and applied renderer skin ID for images. Before live replacement, Asset Manager verifies that an image target still uses that skin. A costume change or another extension's renderer update releases the stale binding, so replacement does not overwrite that newer display. A later Asset Manager display replaces the binding, and removing a target or asset removes stale bindings.
+Display bindings retain the target ID, asset name, public kind, and applied renderer skin ID for images. Before live replacement, Asset Cache verifies that an image target still uses that skin. A costume change or another extension's renderer update releases the stale binding, so replacement does not overwrite that newer display. A later Asset Cache display replaces the binding, and removing a target or asset removes stale bindings.
 
 With `ENABLE_STRICT_ASSET_KIND_REPLACEMENT`, a name keeps its public DSL kind: `external`, `costume`, `backdrop`, `sound`, or `text`. Replacing it with another kind throws `ASSET_TYPE_CHANGE`; an external image also cannot become external audio or vice versa. Explicitly delete the registration before intentionally reusing its name for another kind.
 
@@ -119,14 +119,14 @@ To roll back either behavior, set its flag to `false` and reload the extension. 
 in the Composition API. Turning it off removes that capability without changing registration,
 rendering, playback, cache, or binary bundle behavior.
 
-When enabled, Asset Manager exposes its existing typed asset registry through the canonical
+When enabled, Asset Cache exposes its existing typed asset registry through the canonical
 `@kubohiroya/turbowarp-named-data` provider contract and registers the `asset` namespace persistently
 on the runtime-shared registry. Project stop clears open body handles but preserves the provider
 registration and registered asset metadata.
 
 ## Diagnostic errors
 
-User-facing failures are `AssetManagerError` instances. They retain a stable `code`, operation, relevant asset/resource/actor names, a correction hint, candidate names, and the original `cause`. Messages begin with `[Asset Manager][CODE]`. Candidate lookup searches the relevant registered assets, actors, costumes, or sounds, prioritizes a case-insensitive exact match, and then returns up to three names by edit distance.
+User-facing failures are `AssetManagerError` instances. They retain a stable `code`, operation, relevant asset/resource/actor names, a correction hint, candidate names, and the original `cause`. Messages begin with `[Asset Cache][CODE]`. Candidate lookup searches the relevant registered assets, actors, costumes, or sounds, prioritizes a case-insensitive exact match, and then returns up to three names by edit distance.
 
 The `asset registration error type` and `asset registration error label` Reporter blocks expose the latest `register resource` failure to scripts and monitors. The type Reporter returns the stable code; the label Reporter returns the most relevant asset name, resource ID, or actor name. Starting a registration clears both values, and concurrent registrations allow only the most recently started operation to update them. Both Reporters are empty after a successful latest registration.
 
@@ -208,7 +208,7 @@ action=Fish:setSkin:Fish3
 
 stops the animation for `Fish` before applying `Fish3`.
 
-Animation state is keyed by the unique ACTOR name. A sprite or clone may define that identity in a local `actorName` variable. The invoking target is preferred when its `actorName` or sprite name matches; otherwise Asset Manager searches `actorName` values before falling back to sprite names. Duplicate matches without an invoking target are rejected as a project invariant violation. Applying a project costume preserves a clone's current size while original sprites still adopt the source sprite size. The resolved target is retained in the state only as the drawing destination and for deletion cleanup. Starting a new animation replaces that ACTOR's previous animation. ACTOR deletion, green flag, project stop, runtime disposal, and deleting all in-memory assets cancel the relevant timers.
+Animation state is keyed by the unique ACTOR name. A sprite or clone may define that identity in a local `actorName` variable. The invoking target is preferred when its `actorName` or sprite name matches; otherwise Asset Cache searches `actorName` values before falling back to sprite names. Duplicate matches without an invoking target are rejected as a project invariant violation. Applying a project costume preserves a clone's current size while original sprites still adopt the source sprite size. The resolved target is retained in the state only as the drawing destination and for deletion cleanup. Starting a new animation replaces that ACTOR's previous animation. ACTOR deletion, green flag, project stop, runtime disposal, and deleting all in-memory assets cancel the relevant timers.
 
 ## Loading indicator compatibility
 

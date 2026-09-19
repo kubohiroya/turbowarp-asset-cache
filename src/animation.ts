@@ -4,7 +4,7 @@ import {
   errorMessage,
   suggestNames,
   suggestionHint
-} from './asset-manager-error.js';
+} from './asset-cache-error.js';
 import {FEATURE_FLAGS, type AssetManagerFeatureFlags} from './feature-flags.js';
 
 type BlockArgs = Record<string, unknown>;
@@ -43,7 +43,7 @@ interface AnimationAssetsInput {
 }
 
 /**
- * Asset Manager with actor-level background asset animation.
+ * Asset Cache with actor-level background asset animation.
  *
  * ACTOR is resolved from a clone-local actorName variable before falling back
  * to the existing named-sprite behaviour of setSpriteSkin.

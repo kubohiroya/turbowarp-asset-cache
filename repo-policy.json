@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "productName": "TurboWarp-Asset-Manager",
+  "productName": "TurboWarp-Asset-Cache",
   "packageType": "extension-composition",
   "licensePolicy": "mpl-2.0",
   "packageManager": "pnpm",
@@ -9,8 +9,8 @@
     "minimum": "22"
   },
   "extension": {
-    "id": "kubohiroyaassetmanager",
-    "standaloneBundle": "dist/asset-manager.js",
+    "id": "kubohiroyaassetcache",
+    "standaloneBundle": "dist/asset-cache.js",
     "manifest": "dist/extension-manifest.json",
     "compositionBundle": "dist/composition.js",
     "compositionTypes": "dist/types/composition.d.ts"

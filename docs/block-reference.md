@@ -93,7 +93,7 @@ Returns whether the named external, project-local, or runtime text asset is curr
 
 ### `set text asset [NAME] to [VALUE]`
 
-Sets the runtime text value for a text asset using Asset Manager's internal namespace.
+Sets the runtime text value for a text asset using Asset Cache's internal namespace.
 
 | Property | Value |
 |---|---|
@@ -220,7 +220,7 @@ Stops every active playback of one registered external or project sound asset wi
 
 ### `stop all asset sounds`
 
-Stops all external and project sounds currently tracked by Asset Manager.
+Stops all external and project sounds currently tracked by Asset Cache.
 
 | Property | Value |
 |---|---|
@@ -237,9 +237,9 @@ Returns the normalized MIME type of a registered external, project-local, or run
 | Opcode | `getAssetMimeType` |
 | `NAME` | String, default: `asset1` |
 
-### `Asset Manager version`
+### `Asset Cache version`
 
-Returns the Asset Manager implementation version.
+Returns the Asset Cache implementation version.
 
 | Property | Value |
 |---|---|

@@ -1,11 +1,11 @@
-import { AssetManagerError } from './asset-manager-error.js';
+import { AssetManagerError } from './asset-cache-error.js';
 import { type AssetManagerFeatureFlags } from './feature-flags.js';
 import { type DOMImageResource } from './dom-image-resource.js';
 import { type AssetManagerAudioVoice, type AssetManagerAudioVoiceOptions } from './audio-voice.js';
 import { type NamedAssetBodyProvider } from './named-body-provider.js';
-export declare const EXTENSION_ID = "kubohiroyaassetmanager";
+export declare const EXTENSION_ID = "kubohiroyaassetcache";
 export declare const EXTENSION_VERSION = "0.14.0";
-export declare const EXTENSION_DOCS_URI = "https://kubohiroya.github.io/turbowarp-asset-manager/";
+export declare const EXTENSION_DOCS_URI = "https://kubohiroya.github.io/turbowarp-asset-cache/";
 export declare const BLOCK_ICON_URI: string;
 type BlockArgs = Record<string, unknown>;
 export type AssetKind = 'external' | 'costume' | 'backdrop' | 'sound' | 'text';
