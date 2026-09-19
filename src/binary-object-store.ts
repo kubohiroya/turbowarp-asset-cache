@@ -349,7 +349,7 @@ export function createOpfsBinaryObjectStore(
       if (!originRoot) {
         throw objectError('ASSET_BINARY_OPFS_UNSUPPORTED', 'OPFS is unavailable.');
       }
-      const product = await childDirectory(originRoot, 'tw-asset-manager');
+      const product = await childDirectory(originRoot, 'tw-asset-cache');
       const root = await childDirectory(product, 'opfs-v1');
       const objects = await childDirectory(root, 'objects');
       const staging = await childDirectory(root, 'staging');
@@ -563,7 +563,7 @@ export function createIndexedDBBinaryObjectStore(
   }
   const indexedDB = options.indexedDB ?? globalThis.indexedDB;
   const subtleCrypto = options.subtleCrypto ?? globalThis.crypto?.subtle;
-  const databaseName = options.databaseName ?? 'tw-asset-manager-binary-objects-v1';
+  const databaseName = options.databaseName ?? 'tw-asset-cache-binary-objects-v1';
   if (typeof databaseName !== 'string' || databaseName.length === 0 || databaseName.length > 512 ||
       databaseName.includes('\0')) {
     throw new TypeError('databaseName must be a non-empty string of at most 512 code units.');

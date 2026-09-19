@@ -11,7 +11,7 @@ export type {
   VerifiedRemoteStoryCachePruneResult
 } from './verified-cache-catalog.js';
 
-const DATABASE_NAME = 'tw-asset-manager-verified-binary-v1';
+const DATABASE_NAME = 'tw-asset-cache-verified-binary-v1';
 const DATABASE_VERSION = 2;
 const ENTRY_STORE = 'entries';
 const METADATA_STORE = 'metadata';

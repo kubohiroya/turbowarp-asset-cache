@@ -8,7 +8,7 @@ import {
   type EstablishedOpfsBinaryBundleStore
 } from './opfs-binary-bundle-store.js';
 
-const DEFAULT_DATABASE_NAME = 'tw-asset-manager-binary-bundles-v1';
+const DEFAULT_DATABASE_NAME = 'tw-asset-cache-binary-bundles-v1';
 const DATABASE_VERSION = 1;
 const BUNDLE_STORE = 'bundles';
 const METADATA_STORE = 'bundleMetadata';

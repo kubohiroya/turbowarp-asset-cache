@@ -1,7 +1,7 @@
 import {execFile} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
 import {promisify} from 'node:util';
-import {serializeExtensionManifest} from '@kubohiroya/turbowarp-extension-manifest';
+import {serializeAssetCacheManifest} from '../src/server-manifest.ts';
 
 interface PackageMetadata {
   name: string;
@@ -80,8 +80,8 @@ process.stdout.write('Repository policy is aligned.\n');
 
 function checkPolicy() {
   if (policy.schemaVersion !== 1) errors.push('repo-policy.json schemaVersion must be 1');
-  if (policy.productName !== 'TurboWarp-Asset-Manager') {
-    errors.push('repo-policy.json productName must be TurboWarp-Asset-Manager');
+  if (policy.productName !== 'TurboWarp-Asset-Cache') {
+    errors.push('repo-policy.json productName must be TurboWarp-Asset-Cache');
   }
   if (policy.packageType !== 'extension-composition') {
     errors.push('repo-policy.json packageType must be extension-composition');
@@ -103,7 +103,7 @@ function checkPackageMetadata() {
     }
   }
   if (packageMetadata.license !== 'MPL-2.0') errors.push('package.json license must be MPL-2.0');
-  if (packageMetadata.homepage !== 'https://kubohiroya.github.io/turbowarp-asset-manager/') {
+  if (packageMetadata.homepage !== 'https://kubohiroya.github.io/turbowarp-asset-cache/') {
     errors.push('package.json homepage must point to the Pages user guide');
   }
   if (packageMetadata.engines?.node !== '>=22.18.0') errors.push('package.json engines.node must be >=22.18.0');
@@ -121,7 +121,7 @@ function checkPackageMetadata() {
 }
 
 function checkExtensionManifest() {
-  const expected = serializeExtensionManifest(policy.extension.id, blockDefinitions);
+  const expected = serializeAssetCacheManifest(policy.extension.id, blockDefinitions);
   if (extensionManifest !== expected) {
     errors.push('dist/extension-manifest.json must match src/block-definitions.json byte-for-byte');
   }
@@ -147,7 +147,7 @@ function checkReadme() {
     if (!readme.includes(`${heading}\n`)) errors.push(`README.md must include ${heading}`);
   }
   const installLine = `pnpm add --save-exact ${packageMetadata.name}@${packageMetadata.version}`;
-  const cdnUrl = `https://cdn.jsdelivr.net/npm/${packageMetadata.name}@${packageMetadata.version}/dist/asset-manager.js`;
+  const cdnUrl = `https://cdn.jsdelivr.net/npm/${packageMetadata.name}@${packageMetadata.version}/dist/asset-cache.js`;
   if (!readme.includes(installLine)) errors.push('README.md install example must match package version');
   if (!readme.includes(cdnUrl)) errors.push('README.md CDN URL must match package version');
   if (!readme.includes('corepack enable') || !readme.includes('pnpm install --frozen-lockfile')) {

@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Visual user guide for the TurboWarp-Asset-Manager extension.">
-  <title>Asset Manager guide for TurboWarp</title>
-  <link rel="canonical" href="https://kubohiroya.github.io/turbowarp-asset-manager/">
-  <link rel="alternate" hreflang="en" href="https://kubohiroya.github.io/turbowarp-asset-manager/">
-  <link rel="alternate" hreflang="ja" href="https://kubohiroya.github.io/turbowarp-asset-manager/ja/">
-  <link rel="alternate" hreflang="x-default" href="https://kubohiroya.github.io/turbowarp-asset-manager/">
+  <meta name="description" content="Visual user guide for the TurboWarp-Asset-Cache extension.">
+  <title>Asset Cache guide for TurboWarp</title>
+  <link rel="canonical" href="https://kubohiroya.github.io/turbowarp-asset-cache/">
+  <link rel="alternate" hreflang="en" href="https://kubohiroya.github.io/turbowarp-asset-cache/">
+  <link rel="alternate" hreflang="ja" href="https://kubohiroya.github.io/turbowarp-asset-cache/ja/">
+  <link rel="alternate" hreflang="x-default" href="https://kubohiroya.github.io/turbowarp-asset-cache/">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/site.css">
 </head>
@@ -16,9 +16,9 @@
   <a class="skip-link" href="#main">Skip to the guide</a>
   <header class="app-bar">
     <div class="app-bar-inner">
-      <a class="app-bar-brand" href="./" aria-label="Asset Manager guide home">
+      <a class="app-bar-brand" href="./" aria-label="Asset Cache guide home">
         <span class="app-bar-mark" aria-hidden="true">A</span>
-        <span class="app-bar-label">Asset Manager</span>
+        <span class="app-bar-label">Asset Cache</span>
       </a>
       <nav class="app-bar-sections" aria-label="Guide sections">
         <a href="#quick-start">Quick start</a>
@@ -29,7 +29,7 @@
         <a href="#reference">Reference</a>
       </nav>
       <div class="app-bar-actions">
-        <a class="app-bar-github" href="https://github.com/kubohiroya/turbowarp-asset-manager" aria-label="Source code and releases on GitHub">GitHub</a>
+        <a class="app-bar-github" href="https://github.com/kubohiroya/turbowarp-asset-cache" aria-label="Source code and releases on GitHub">GitHub</a>
         <nav class="app-bar-languages" aria-label="Language">
           <a href="./" hreflang="en" lang="en" aria-current="page">English</a>
           <a href="ja/" hreflang="ja" lang="ja">日本語</a>
@@ -44,7 +44,7 @@
         <p class="eyebrow">TurboWarp custom extension · v0.14.0</p>
         <h1 id="hero-title">Use every project asset through one name.</h1>
         <p class="hero-copy">
-          Asset Manager registers web images and audio, project costumes, backdrops, sounds,
+          Asset Cache registers web images and audio, project costumes, backdrops, sounds,
           and live text. Your scripts can then display, play, animate, cache, and replace them
           through one consistent set of blocks.
         </p>
@@ -71,7 +71,7 @@
       <p class="eyebrow">Kamishibai DSL 4.0 bundle</p>
       <h2 id="dsl4-bundle-title">The bundled blocks use this same reference.</h2>
       <p class="section-intro">
-        In the DSL 4.0 runtime palette, find the <strong>Asset Manager</strong> member heading and
+        In the DSL 4.0 runtime palette, find the <strong>Asset Cache</strong> member heading and
         click its documentation button. It opens this guide. The bundled blocks keep Asset
         Manager's behavior and names; the bundle only adds a member-specific namespace and icon.
       </p>
@@ -86,7 +86,7 @@
       <p class="eyebrow">Quick start</p>
       <h2 id="quick-start-title">Load, register, use.</h2>
       <p class="section-intro">
-        Asset Manager must run without the extension sandbox because it works with TurboWarp's
+        Asset Cache must run without the extension sandbox because it works with TurboWarp's
         renderer, audio system, and project resources.
       </p>
 
@@ -94,7 +94,7 @@
         <li>
           <h3>Load the extension</h3>
           <p>In TurboWarp, choose <strong>Add Extension → Custom Extension</strong> and paste:</p>
-          <pre><code>https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-manager@0.16.0/dist/asset-manager.js</code></pre>
+          <pre><code>https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-cache@0.1.0/dist/asset-cache.js</code></pre>
           <p>Enable <strong>Run extension without sandbox</strong>.</p>
         </li>
         <li>
@@ -203,9 +203,9 @@
       <figure class="diagram" aria-describedby="cache-description">
         <figcaption>Two ways to fill the in-memory registry</figcaption>
         <p id="cache-description" class="sr-only">
-          With a URL, Asset Manager fetches the resource, normalizes its media type, verifies that
+          With a URL, Asset Cache fetches the resource, normalizes its media type, verifies that
           the request is still the latest generation, writes the named entry to IndexedDB, and
-          registers it in memory. With an empty resource identifier, Asset Manager reads the named
+          registers it in memory. With an empty resource identifier, Asset Cache reads the named
           entry from IndexedDB and registers it in memory without a network request.
         </p>
         <div aria-hidden="true">
@@ -256,14 +256,14 @@
       <p>
         Version 0.6.0 adds a block-free, cache-first path for app shells and composite extensions.
         It is separate from the legacy name-keyed cache above. The host supplies the network loader
-        and an expected SHA-256, byte size, and Content-Type. Asset Manager returns a valid
+        and an expected SHA-256, byte size, and Content-Type. Asset Cache returns a valid
         IndexedDB hit without a network request; otherwise it downloads, verifies, and only then
         stores the bytes. Source URLs and credentials are not persisted.
       </p>
       <pre><code>import {
   createAssetManagerComposition,
   createVerifiedRemoteCacheDatabaseName
-} from '@kubohiroya/turbowarp-asset-manager/composition';
+} from '@kubohiroya/turbowarp-asset-cache/composition';
 
 const databaseName = createVerifiedRemoteCacheDatabaseName({
   id: story.cacheId,
@@ -287,7 +287,7 @@ const result = await assets.resolveVerifiedRemoteBinary(model, {
       <figure class="diagram" aria-describedby="composition-cache-description">
         <figcaption>Persistent cache lifetime and materialized memory lifetime are independent</figcaption>
         <p id="composition-cache-description" class="sr-only">
-          The story manifest supplies a stable story ID and readable filename. Asset Manager uses
+          The story manifest supplies a stable story ID and readable filename. Asset Cache uses
           them to identify a per-story IndexedDB database, verifies downloaded bytes, and returns
           them to the host. The host materializes an image, sound, or model and releases that
           in-memory resource according to scene or story retention without deleting the persistent
@@ -345,7 +345,7 @@ const result = await assets.resolveVerifiedRemoteBinary(model, {
         <code>renewVerifiedRemoteStoryCacheLease</code> and
         <code>releaseVerifiedRemoteStoryCacheLease</code> for runtime ownership. The DSL values
         <code>retention: scene</code> and <code>retention: story</code> are host lifecycle policy;
-        Asset Manager does not parse YAML or reinterpret them as IndexedDB TTL.
+        Asset Cache does not parse YAML or reinterpret them as IndexedDB TTL.
       </p>
       <aside class="callout callout-warning">
         <strong>IndexedDB is an auxiliary cache, not private storage.</strong>
@@ -385,7 +385,7 @@ const stored = await assets.getBinaryBundle({
       <figure class="diagram" aria-describedby="composition-bundles-description">
         <figcaption>A complete bundle becomes visible only after one transaction commits</figcaption>
         <p id="composition-bundles-description" class="sr-only">
-          The host supplies a story-scoped key and all bundle files. Asset Manager verifies every
+          The host supplies a story-scoped key and all bundle files. Asset Cache verifies every
           declared size and SHA-256, commits the bundle and metadata in one IndexedDB transaction,
           and returns the complete verified bundle on a later read. Missing, partial, or corrupt
           records fail closed.
@@ -467,7 +467,7 @@ await backing.dispose();</code></pre>
       <figure class="diagram" aria-describedby="replacement-description">
         <figcaption>A successful live replacement commits only after the new content is ready</figcaption>
         <p id="replacement-description" class="sr-only">
-          Asset Manager first prepares the new content, then updates the registry, reapplies it to
+          Asset Cache first prepares the new content, then updates the registry, reapplies it to
           only the targets still bound to that asset name and public kind, and finally releases the
           old owned resource. If preparation or display reapply fails, the old registration, display,
           and cache are restored.
@@ -484,7 +484,7 @@ await backing.dispose();</code></pre>
         a configured animation again from the beginning. Audio already playing continues; the next
         playback uses the replacement. Same-name commits run serially, so an active commit finishes
         atomically and the last-started successful registration remains afterward. A newer invalid
-        attempt does not cancel an earlier valid one. For images, Asset Manager also verifies the
+        attempt does not cancel an earlier valid one. For images, Asset Cache also verifies the
         renderer skin it applied before refreshing a target. A later costume or renderer change
         releases that stale display binding instead of being overwritten. With strict-kind
         replacement enabled, the public kinds
@@ -505,7 +505,7 @@ await backing.dispose();</code></pre>
         Version 0.4.0 returns the uppercase diagnostic codes below.
       </p>
       <p>
-        User-facing errors begin with <code>[Asset Manager][CODE]</code> and retain the operation,
+        User-facing errors begin with <code>[Asset Cache][CODE]</code> and retain the operation,
         relevant asset/resource/actor names, a correction hint, nearby candidates, and the original
         cause. The registration error reporters expose the latest code and its most relevant label.
         Synchronous failures are thrown without duplicate logging; background playback and animation
@@ -596,7 +596,7 @@ show asset [Card] on this sprite</code></pre>
           <pre><code>register resource [costume:Hero:running]
   as asset [HeroRunning]
 show asset [HeroRunning] on this sprite</code></pre>
-          <p>No image is copied. Asset Manager points to the costume already owned by the project.</p>
+          <p>No image is copied. Asset Cache points to the costume already owned by the project.</p>
         </article>
         <article class="card">
           <h3>Play a sound</h3>
@@ -704,8 +704,8 @@ show asset [Narration] on this sprite</code></pre>
 
   <footer class="site-footer">
     <div class="footer-inner">
-      <p>TurboWarp-Asset-Manager · MPL-2.0</p>
-      <p><a href="https://github.com/kubohiroya/turbowarp-asset-manager/issues">Report a problem</a></p>
+      <p>TurboWarp-Asset-Cache · MPL-2.0</p>
+      <p><a href="https://github.com/kubohiroya/turbowarp-asset-cache/issues">Report a problem</a></p>
     </div>
   </footer>
 </body>

@@ -1,17 +1,17 @@
 {
-  "name": "@kubohiroya/turbowarp-asset-manager",
-  "version": "0.16.0",
-  "description": "An IndexedDB-backed image, audio, and runtime-text asset manager for TurboWarp projects.",
+  "name": "@kubohiroya/turbowarp-asset-cache",
+  "version": "0.1.0",
+  "description": "A browser-local image, audio, and runtime-text asset cache for TurboWarp projects.",
   "author": "Hiroya Kubo <hiroya@cuc.ac.jp>",
   "type": "module",
   "license": "MPL-2.0",
-  "homepage": "https://kubohiroya.github.io/turbowarp-asset-manager/",
+  "homepage": "https://kubohiroya.github.io/turbowarp-asset-cache/",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kubohiroya/turbowarp-asset-manager.git"
+    "url": "git+https://github.com/kubohiroya/turbowarp-asset-cache.git"
   },
   "bugs": {
-    "url": "https://github.com/kubohiroya/turbowarp-asset-manager/issues"
+    "url": "https://github.com/kubohiroya/turbowarp-asset-cache/issues"
   },
   "exports": {
     "./composition": {
@@ -25,8 +25,8 @@
     "README.md",
     "LICENSE"
   ],
-  "unpkg": "./dist/asset-manager.js",
-  "jsdelivr": "./dist/asset-manager.js",
+  "unpkg": "./dist/asset-cache.js",
+  "jsdelivr": "./dist/asset-cache.js",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"

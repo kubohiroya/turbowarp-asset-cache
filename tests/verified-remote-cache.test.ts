@@ -8,7 +8,7 @@ import {
   type VerifiedRemoteBinaryInput
 } from '../src/verified-remote-cache.js';
 
-const DATABASE_NAME = 'tw-asset-manager-verified-binary-v1';
+const DATABASE_NAME = 'tw-asset-cache-verified-binary-v1';
 const CONTENT_TYPE = 'application/octet-stream';
 
 async function sha256Integrity(bytes: Uint8Array): Promise<string> {
@@ -178,7 +178,7 @@ async function getCacheInfo(
 }
 
 async function putLegacyRecord(indexedDB: IDBFactory): Promise<void> {
-  const request = indexedDB.open('tw-asset-manager', 1);
+  const request = indexedDB.open('tw-asset-cache', 1);
   request.onupgradeneeded = () => request.result.createObjectStore('assets', {keyPath: 'name'});
   const database = await requestResult(request);
   try {
@@ -191,7 +191,7 @@ async function putLegacyRecord(indexedDB: IDBFactory): Promise<void> {
 }
 
 async function getLegacyRecord(indexedDB: IDBFactory): Promise<unknown> {
-  const database = await openDatabase(indexedDB, 'tw-asset-manager');
+  const database = await openDatabase(indexedDB, 'tw-asset-cache');
   try {
     const transaction = database.transaction('assets', 'readonly');
     const result = await requestResult(transaction.objectStore('assets').get('legacy'));

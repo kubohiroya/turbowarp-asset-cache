@@ -272,7 +272,7 @@ describe('OPFS binary object store', () => {
     await store.put(descriptor, bytes);
     await expect(store.get(descriptor)).resolves.toMatchObject({key, bytes});
 
-    const product = root.entries.get('tw-asset-manager') as MemoryDirectory;
+    const product = root.entries.get('tw-asset-cache') as MemoryDirectory;
     const version = product.entries.get('opfs-v1') as MemoryDirectory;
     const objects = version.entries.get('objects') as MemoryDirectory;
     expect([...objects.entries.keys()]).toEqual([objectName.slice(0, 2)]);
@@ -322,7 +322,7 @@ describe('OPFS binary object store', () => {
     });
     await store.put(referenced, referencedBytes);
     await store.put(pending, pendingBytes);
-    const product = root.entries.get('tw-asset-manager') as MemoryDirectory;
+    const product = root.entries.get('tw-asset-cache') as MemoryDirectory;
     const version = product.entries.get('opfs-v1') as MemoryDirectory;
     const staging = version.entries.get('staging') as MemoryDirectory;
     const stage = await staging.getFileHandle('pending-stage', {create: true});
@@ -372,7 +372,7 @@ describe('OPFS binary object store', () => {
     continueDigest.resolve();
 
     await expect(put).rejects.toMatchObject({code: 'ASSET_BINARY_STORE_RELEASED'});
-    const product = root.entries.get('tw-asset-manager') as MemoryDirectory;
+    const product = root.entries.get('tw-asset-cache') as MemoryDirectory;
     const version = product.entries.get('opfs-v1') as MemoryDirectory;
     const objects = version.entries.get('objects') as MemoryDirectory;
     expect(objects.entries.size).toBe(0);
@@ -448,12 +448,12 @@ describe('OPFS binary object store', () => {
 
   it('does not fallback when OPFS recovery itself fails', async () => {
     const root = new MemoryDirectory('root');
-    const product = new MemoryDirectory('tw-asset-manager');
+    const product = new MemoryDirectory('tw-asset-cache');
     const version = new MemoryDirectory('opfs-v1');
     const objects = new MemoryDirectory('objects');
     const staging = new MemoryDirectory('staging');
     staging.failValues = true;
-    root.entries.set('tw-asset-manager', product);
+    root.entries.set('tw-asset-cache', product);
     product.entries.set('opfs-v1', version);
     version.entries.set('objects', objects);
     version.entries.set('staging', staging);

@@ -4,7 +4,7 @@ Composite extensions can import the block-free API and keep its registry private
 component:
 
 ```js
-import {createAssetManagerComposition} from '@kubohiroya/turbowarp-asset-manager/composition';
+import {createAssetManagerComposition} from '@kubohiroya/turbowarp-asset-cache/composition';
 
 const assets = createAssetManagerComposition();
 await assets.registerEmbeddedAsset({
@@ -162,16 +162,16 @@ assets.releaseAll();
 
 Bubble's default SVG overlay in
 [turbowarp-bubble#59](https://github.com/kubohiroya/turbowarp-bubble/issues/59) consumes this generic
-resource through a Bubble-owned adapter. Asset Manager does not import Bubble types or attach
+resource through a Bubble-owned adapter. Asset Cache does not import Bubble types or attach
 Bubble-specific security metadata; see Bubble's SVG overlay example for the integration point.
 
-Separately loaded unsandboxed extensions can share the stock Asset Manager registry without
-reading private fields. Call `getDOMImageCapability()` on the registered Asset Manager extension
+Separately loaded unsandboxed extensions can share the stock Asset Cache registry without
+reading private fields. Call `getDOMImageCapability()` on the registered Asset Cache extension
 and pass the returned frozen capability to the consumer-owned adapter. The capability exposes only
 generic registration lookup, MIME lookup, and verified DOM resource resolution:
 
 ```js
-const assetManager = Scratch.vm.runtime.ext_kubohiroyaassetmanager;
+const assetManager = Scratch.vm.runtime.ext_kubohiroyaassetcache;
 const imageCapability = assetManager.getDOMImageCapability();
 
 if (imageCapability.isRegistered('Portrait')) {
@@ -185,7 +185,7 @@ if (imageCapability.isRegistered('Portrait')) {
 }
 ```
 
-The capability shares the exact registry populated by the stock Asset Manager blocks. Successful
+The capability shares the exact registry populated by the stock Asset Cache blocks. Successful
 replacement or deletion invalidates its active leases. Project stop, project reload, and runtime
 disposal release every remaining lease. Target- or clone-specific consumers retain ownership of
 their resource and must call its idempotent `release()` during their own target lifecycle cleanup.
@@ -195,7 +195,7 @@ logical name. `releaseAllDOMImageResources` releases URLs without unregistering 
 `releaseAll` does both. Active URLs are also released on `PROJECT_STOP_ALL`, `PROJECT_LOADED`, and
 `RUNTIME_DISPOSED`. Passing the owning TurboWarp target to `applyDOMImageResource` additionally
 releases its URL when a removed target or clone emits `STOP_FOR_TARGET`. Once released, the URL is
-revoked, a bound matching `href`/`src` is removed, and Asset Manager retains no Blob or byte
+revoked, a bound matching `href`/`src` is removed, and Asset Cache retains no Blob or byte
 reference. Callers must not keep using a released URL and must reapply resources after stop or
 project reload.
 
@@ -224,7 +224,7 @@ and keep the database name when only the source filename changes:
 import {
   createAssetManagerComposition,
   createVerifiedRemoteCacheDatabaseName
-} from '@kubohiroya/turbowarp-asset-manager/composition';
+} from '@kubohiroya/turbowarp-asset-cache/composition';
 
 const cacheIdentity = {
   id: storyManifest.cacheId,
@@ -271,8 +271,8 @@ only then request complete database deletion.
 ### Verified remote binary cache
 
 Composition hosts can opt into a cache-first remote-binary path without adding blocks to the
-Asset Manager palette. The host remains responsible for network policy and supplies the loader;
-Asset Manager validates the declared size, normalized Content-Type, and SHA-256 before it stores or
+Asset Cache palette. The host remains responsible for network policy and supplies the loader;
+Asset Cache validates the declared size, normalized Content-Type, and SHA-256 before it stores or
 returns network bytes.
 
 ```js
@@ -303,9 +303,9 @@ verification succeeds but the cache write fails, the result is still returned fo
 machine-readable codes for blocked, unavailable, quota, cleanup, and write failures. Cancellation
 prevents that resolution's write from remaining in the cache.
 
-The unscoped verified cache uses the isolated `tw-asset-manager-verified-binary-v1` database; a
+The unscoped verified cache uses the isolated `tw-asset-cache-verified-binary-v1` database; a
 story-scoped host uses the readable database name described above. Neither mode alters the legacy
-name-keyed `tw-asset-manager` database. Records contain the integrity, size,
+name-keyed `tw-asset-cache` database. Records contain the integrity, size,
 Content-Type, timestamps, and bytes; source URLs and credentials are not persisted. The default
 high-water mark is the smaller of 256 MiB and 20% of the browser-reported origin quota. Before a
 write exceeds that mark, old unpinned and inactive story databases are removed first and the
@@ -341,10 +341,10 @@ private material and should offer users a cache-clear control where appropriate.
 
 Persistent cache lifetime and materialized memory lifetime are separate. When the loader sets
 `transferOwnership: true`, it must not read or mutate the supplied `ArrayBuffer` after returning;
-Asset Manager verifies, stores, and returns that owned buffer without an additional full-size
-JavaScript copy. Without that flag, Asset Manager makes one defensive input copy. IndexedDB still
+Asset Cache verifies, stores, and returns that owned buffer without an additional full-size
+JavaScript copy. Without that flag, Asset Cache makes one defensive input copy. IndexedDB still
 performs its browser-managed structured clone. After resolution, the caller owns the returned
-buffer and Asset Manager retains no application-level heap copy. Registering those bytes as an image or sound creates a separate in-memory
+buffer and Asset Cache retains no application-level heap copy. Registering those bytes as an image or sound creates a separate in-memory
 resource, which the composition host releases with `releaseAsset` or `releaseAll`. A scene-based
 DSL can therefore implement the following policy without deleting the offline cache:
 
@@ -354,7 +354,7 @@ retention: scene # release the materialized resource after the last adjacent sce
 ```
 
 With `retention: story`, the host keeps the materialized resource until story stop, restart, or
-session disposal. These values are host-level lifecycle policy; Asset Manager neither parses the
+session disposal. These values are host-level lifecycle policy; Asset Cache neither parses the
 YAML nor treats them as IndexedDB TTL. Releasing an in-memory registration does not delete verified
 bytes from IndexedDB, and clearing IndexedDB does not invalidate a resource that is already
 materialized in memory. JavaScript references are dropped so bytes and platform resources can be
@@ -434,7 +434,7 @@ reported and never causes a per-record backend switch. `opfs-required` fails est
 `getBinaryBundleBackendStatus()` reports the selected backend and the stable
 `ASSET_BINARY_BACKEND_FALLBACK` warning when applicable.
 
-OPFS objects live below `tw-asset-manager/opfs-v1/objects/<sha256-prefix>/<sha256>`. Logical
+OPFS objects live below `tw-asset-cache/opfs-v1/objects/<sha256-prefix>/<sha256>`. Logical
 namespaces, asset names, and bundle paths exist only in IndexedDB metadata and are never used as
 filesystem path segments. Writes use an opaque staging file, verify size and SHA-256 after close,
 establish every content-addressed object, and only then publish the active manifest. Reads consult
@@ -516,14 +516,14 @@ source. Once activated, a missing, corrupt, integrity-failing, aborted, or close
 fatal: the backing never rereads the source, rewrites IndexedDB, or changes to direct mode.
 `onFatalError` lets the host stop its runtime while preserving the authoritative error code.
 Renderer, audio decoder, or model-loader failures after `get` returns are materialization errors;
-Asset Manager does not relabel them as storage or source failures.
+Asset Cache does not relabel them as storage or source failures.
 
 Each active backing renews a short lease. New sessions clean only a bounded number of expired
 session records and leave unexpired sibling-tab sessions intact. Normal `dispose` removes only its
 own session records. The database name, per-asset and per-session byte/file limits, lease TTL,
 heartbeat interval, and cleanup batch size are configurable through `sessionBinaryBacking`; byte
 limits may be raised to any positive safe integer after the host applies its own resource policy.
-The source must remain readable until Asset Manager calls `release`, including when `prefer`
+The source must remain readable until Asset Cache calls `release`, including when `prefer`
 selects direct mode.
 
 When `sessionBinaryBacking.backendPolicy` is `opfs-prefer` or `opfs-required`, session bytes use the

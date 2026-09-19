@@ -42,7 +42,7 @@ export class AssetManagerError extends Error {
 
   constructor(code: AssetManagerErrorCode, message: string, context: AssetManagerErrorContext) {
     const hintText = context.hint ? ` ${context.hint}` : '';
-    super(`[Asset Manager][${code}] ${message}${hintText}`, {cause: context.cause});
+    super(`[Asset Cache][${code}] ${message}${hintText}`, {cause: context.cause});
     this.name = 'AssetManagerError';
     this.code = code;
     this.operation = context.operation;

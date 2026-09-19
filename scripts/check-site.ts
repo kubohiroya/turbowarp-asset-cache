@@ -9,8 +9,8 @@ const errors: string[] = [];
 
 const readme = await readFile(readmePath, 'utf8');
 for (const guideUrl of [
-  'https://kubohiroya.github.io/turbowarp-asset-manager/',
-  'https://kubohiroya.github.io/turbowarp-asset-manager/ja/'
+  'https://kubohiroya.github.io/turbowarp-asset-cache/',
+  'https://kubohiroya.github.io/turbowarp-asset-cache/ja/'
 ]) {
   if (!readme.includes(guideUrl)) errors.push(`README.md: missing guide link ${guideUrl}`);
 }

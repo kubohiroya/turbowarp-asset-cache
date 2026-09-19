@@ -267,7 +267,7 @@ export function createAssetManagerComposition(
   options: AssetManagerCompositionOptions = {}
 ): AssetManagerComposition {
   if (!options || typeof options !== 'object' || Array.isArray(options)) {
-    throw new TypeError('Asset Manager composition options must be an object.');
+    throw new TypeError('Asset Cache composition options must be an object.');
   }
   const extension = featureFlags
     ? new AssetManagerExtension(featureFlags)
@@ -339,7 +339,7 @@ export function createAssetManagerComposition(
       return {external, internal: existing, previouslyOwned: true};
     }
     const internal = mode === 'literal'
-      ? `\u0000asset-manager-composition:${++literalNameSequence}`
+      ? `\u0000asset-cache-composition:${++literalNameSequence}`
       : external;
     ownedNames.set(external, internal);
     return {external, internal, previouslyOwned: false};

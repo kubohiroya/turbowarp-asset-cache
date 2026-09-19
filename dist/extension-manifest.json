@@ -1,26 +1,54 @@
 {
-  "formatVersion": 1,
-  "id": "kubohiroyaassetmanager",
+  "formatVersion": 2,
+  "id": "kubohiroyaassetcache",
   "blocks": [
     {
       "opcode": "assetErrorLabel",
       "blockType": "REPORTER",
-      "arguments": []
+      "arguments": [],
+      "resultType": "string",
+      "effect": "pure",
+      "immutable": true,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "assetErrorType",
       "blockType": "REPORTER",
-      "arguments": []
+      "arguments": [],
+      "resultType": "string",
+      "effect": "pure",
+      "immutable": true,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "deleteAllCachedAssets",
       "blockType": "COMMAND",
-      "arguments": []
+      "arguments": [],
+      "resultType": "void",
+      "effect": "storage-write",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "deleteAllMemoryAssets",
       "blockType": "COMMAND",
-      "arguments": []
+      "arguments": [],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "deleteCachedAsset",
@@ -30,7 +58,14 @@
           "id": "NAME",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "storage-write",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "deleteMemoryAsset",
@@ -40,12 +75,26 @@
           "id": "NAME",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "finishAllActorSequences",
       "blockType": "COMMAND",
-      "arguments": []
+      "arguments": [],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "getAssetMimeType",
@@ -55,12 +104,26 @@
           "id": "NAME",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "string",
+      "effect": "pure",
+      "immutable": true,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "getVersion",
       "blockType": "REPORTER",
-      "arguments": []
+      "arguments": [],
+      "resultType": "string",
+      "effect": "pure",
+      "immutable": true,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "isLoaded",
@@ -70,7 +133,14 @@
           "id": "NAME",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "boolean",
+      "effect": "pure",
+      "immutable": true,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "loadAsset",
@@ -84,7 +154,14 @@
           "id": "URL",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "playSound",
@@ -94,7 +171,14 @@
           "id": "NAME",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "playSoundUntilDone",
@@ -104,7 +188,14 @@
           "id": "NAME",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "registerAsset",
@@ -118,7 +209,14 @@
           "id": "RESOURCE_ID",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "setSpriteSkin",
@@ -132,7 +230,14 @@
           "id": "SPRITE",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "setStageSkin",
@@ -142,7 +247,14 @@
           "id": "NAME",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "setTextStyle",
@@ -160,7 +272,14 @@
           "id": "VALUE",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "setTextValue",
@@ -174,7 +293,14 @@
           "id": "VALUE",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "setThisSpriteSkin",
@@ -184,7 +310,14 @@
           "id": "NAME",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "startActorLoop",
@@ -202,7 +335,14 @@
           "id": "DURATIONS",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "startActorSequence",
@@ -220,7 +360,14 @@
           "id": "DURATIONS",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "stopActorAnimation",
@@ -230,12 +377,26 @@
           "id": "ACTOR",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "stopAllSounds",
       "blockType": "COMMAND",
-      "arguments": []
+      "arguments": [],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     },
     {
       "opcode": "stopSound",
@@ -245,7 +406,14 @@
           "id": "NAME",
           "type": "STRING"
         }
-      ]
+      ],
+      "resultType": "void",
+      "effect": "control",
+      "immutable": false,
+      "errors": [],
+      "server": {
+        "supported": false
+      }
     }
   ],
   "menus": []

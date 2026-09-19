@@ -3,7 +3,7 @@ import {
   AssetManagerError,
   suggestNames,
   suggestionHint
-} from '../src/asset-manager-error.js';
+} from '../src/asset-cache-error.js';
 import {FEATURE_FLAGS} from '../src/feature-flags.js';
 
 describe('AssetManagerError', () => {
@@ -44,7 +44,7 @@ describe('AssetManagerError', () => {
       hint: 'Delete the old asset first.'
     });
     expect(error.cause).toBe(cause);
-    expect(error.message).toContain('[Asset Manager][REPLACEMENT_FAILED]');
+    expect(error.message).toContain('[Asset Cache][REPLACEMENT_FAILED]');
   });
 
   it('prioritizes case-insensitive exact matches, then edit distance, up to three items', () => {

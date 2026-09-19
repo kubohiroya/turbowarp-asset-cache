@@ -5,7 +5,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
-const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'asset-manager-archive-'));
+const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'asset-cache-archive-'));
 const archiveRoot = path.join(temporaryRoot, 'package');
 const excludedTopLevel = new Set(['.git', 'dist', 'node_modules']);
 
@@ -29,7 +29,7 @@ try {
     stdio: 'pipe',
   });
   for (const output of [
-    'dist/asset-manager.js',
+    'dist/asset-cache.js',
     'dist/composition.js',
     'dist/types/composition.d.ts',
   ]) {

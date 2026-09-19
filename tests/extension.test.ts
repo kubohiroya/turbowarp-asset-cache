@@ -508,12 +508,12 @@ describe('project-local assets', () => {
     const extension = new AssetManagerExtension();
 
     expect(extension.getInfo().docsURI).toBe(EXTENSION_DOCS_URI);
-    expect(EXTENSION_DOCS_URI).toBe('https://kubohiroya.github.io/turbowarp-asset-manager/');
+    expect(EXTENSION_DOCS_URI).toBe('https://kubohiroya.github.io/turbowarp-asset-cache/');
     expect(extension.getVersion()).toBe(EXTENSION_VERSION);
     expect(EXTENSION_VERSION).toBe('0.14.0');
   });
 
-  it('publishes the Asset Manager monogram as a transparent block icon', () => {
+  it('publishes the Asset Cache monogram as a transparent block icon', () => {
     const info = new AssetManagerExtension().getInfo();
     const svg = decodeURIComponent(BLOCK_ICON_URI.slice('data:image/svg+xml,'.length));
 
@@ -966,7 +966,7 @@ describe('project-local assets', () => {
 
     await expect(extension.setThisSpriteSkin({NAME: 'Naration'}, {target: sprite}))
       .rejects.toThrow(
-        '[Asset Manager][ASSET_NOT_REGISTERED] Cannot show asset "Naration": ' +
+        '[Asset Cache][ASSET_NOT_REGISTERED] Cannot show asset "Naration": ' +
         'no registered asset has that name. Did you mean "Narration"?'
       );
   });

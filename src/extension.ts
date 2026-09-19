@@ -13,7 +13,7 @@ import {
   errorMessage,
   suggestNames,
   suggestionHint
-} from './asset-manager-error.js';
+} from './asset-cache-error.js';
 import {
   FEATURE_FLAGS,
   type AssetManagerFeatureFlags
@@ -48,14 +48,14 @@ import {
   textStyleRuntimeVariableName
 } from './text-style.js';
 
-export const EXTENSION_ID = 'kubohiroyaassetmanager';
+export const EXTENSION_ID = 'kubohiroyaassetcache';
 export const EXTENSION_VERSION = '0.14.0';
-export const EXTENSION_DOCS_URI = 'https://kubohiroya.github.io/turbowarp-asset-manager/';
+export const EXTENSION_DOCS_URI = 'https://kubohiroya.github.io/turbowarp-asset-cache/';
 export const BLOCK_ICON_URI = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path fill="#fff" d="M19 47 29 17h7l10 30h-7l-2-7H27l-2 7h-6Zm10-13h6l-3-10-3 10Z"/></svg>'
 )}`;
 
-const DB_NAME = 'tw-asset-manager';
+const DB_NAME = 'tw-asset-cache';
 const DB_VERSION = 1;
 const STORE_NAME = 'assets';
 const STAGE_RESOURCE_NAME = '@stage';

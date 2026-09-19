@@ -1,5 +1,5 @@
 {
-  "extensionName": "Asset Manager",
+  "extensionName": "Asset Cache",
   "blocks": [
     {"opcode":"registerAsset","blockType":"COMMAND","text":"register resource [RESOURCE_ID] as asset [NAME]","description":"Registers an external URL, cached asset, sprite costume, stage backdrop, project sound, or runtime text variable under one asset name.","arguments":{"RESOURCE_ID":{"type":"STRING","defaultValue":"https://example.com/asset.png"},"NAME":{"type":"STRING","defaultValue":"asset1"}}},
     {"opcode":"assetErrorType","blockType":"REPORTER","text":"asset registration error type","description":"Returns the stable error code for the most recent asset registration failure, or an empty string when the latest registration succeeded.","arguments":{}},
@@ -10,7 +10,7 @@
     {"opcode":"deleteCachedAsset","blockType":"COMMAND","text":"delete asset [NAME] from cache","description":"Deletes one named external asset from the IndexedDB cache.","arguments":{"NAME":{"type":"STRING","defaultValue":"asset1"}}},
     {"opcode":"deleteAllCachedAssets","blockType":"COMMAND","text":"delete all assets from cache","description":"Clears all external assets from the IndexedDB cache.","arguments":{}},
     {"opcode":"isLoaded","blockType":"BOOLEAN","text":"asset [NAME] is loaded","description":"Returns whether the named external, project-local, or runtime text asset is currently registered.","arguments":{"NAME":{"type":"STRING","defaultValue":"asset1"}}},
-    {"opcode":"setTextValue","blockType":"COMMAND","text":"set text asset [NAME] to [VALUE]","description":"Sets the runtime text value for a text asset using Asset Manager's internal namespace.","arguments":{"NAME":{"type":"STRING","defaultValue":"Narration"},"VALUE":{"type":"STRING","defaultValue":"Once upon a time..."}}},
+    {"opcode":"setTextValue","blockType":"COMMAND","text":"set text asset [NAME] to [VALUE]","description":"Sets the runtime text value for a text asset using Asset Cache's internal namespace.","arguments":{"NAME":{"type":"STRING","defaultValue":"Narration"},"VALUE":{"type":"STRING","defaultValue":"Once upon a time..."}}},
     {"opcode":"setTextStyle","blockType":"COMMAND","text":"set text asset [NAME] style [PROPERTY] to [VALUE]","description":"Sets one runtime style property for a text asset. Supported properties are animation, font, color, width, and align. An empty value restores the default.","arguments":{"NAME":{"type":"STRING","defaultValue":"Narration"},"PROPERTY":{"type":"STRING","defaultValue":"font"},"VALUE":{"type":"STRING","defaultValue":"Sans Serif"}}},
     {"opcode":"setThisSpriteSkin","blockType":"COMMAND","text":"show asset [NAME] on this sprite","description":"Applies a registered image asset or displays a registered runtime text asset on the current sprite or clone.","arguments":{"NAME":{"type":"STRING","defaultValue":"asset1"}}},
     {"opcode":"setSpriteSkin","blockType":"COMMAND","text":"show asset [NAME] on [SPRITE] (compatibility)","description":"Stops any actor animation and applies a registered image asset or displays a registered runtime text asset on a named sprite. This block is retained for compatibility.","arguments":{"SPRITE":{"type":"STRING","defaultValue":"Sprite1"},"NAME":{"type":"STRING","defaultValue":"asset1"}}},
@@ -22,8 +22,8 @@
     {"opcode":"playSound","blockType":"COMMAND","text":"play asset [NAME] as sound","description":"Starts playback of a registered external audio asset or project sound without waiting for completion.","arguments":{"NAME":{"type":"STRING","defaultValue":"sound1"}}},
     {"opcode":"playSoundUntilDone","blockType":"COMMAND","text":"play asset [NAME] as sound until done","description":"Plays a registered external audio asset or project sound and waits until playback ends or fails.","arguments":{"NAME":{"type":"STRING","defaultValue":"sound1"}}},
     {"opcode":"stopSound","blockType":"COMMAND","text":"stop asset sound [NAME]","description":"Stops every active playback of one registered external or project sound asset without stopping other sounds.","arguments":{"NAME":{"type":"STRING","defaultValue":"sound1"}}},
-    {"opcode":"stopAllSounds","blockType":"COMMAND","text":"stop all asset sounds","description":"Stops all external and project sounds currently tracked by Asset Manager.","arguments":{}},
+    {"opcode":"stopAllSounds","blockType":"COMMAND","text":"stop all asset sounds","description":"Stops all external and project sounds currently tracked by Asset Cache.","arguments":{}},
     {"opcode":"getAssetMimeType","blockType":"REPORTER","text":"MIME type of asset [NAME]","description":"Returns the normalized MIME type of a registered external, project-local, or runtime text asset.","arguments":{"NAME":{"type":"STRING","defaultValue":"asset1"}}},
-    {"opcode":"getVersion","blockType":"REPORTER","text":"Asset Manager version","description":"Returns the Asset Manager implementation version.","arguments":{}}
+    {"opcode":"getVersion","blockType":"REPORTER","text":"Asset Cache version","description":"Returns the Asset Cache implementation version.","arguments":{}}
   ]
 }

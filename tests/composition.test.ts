@@ -17,7 +17,7 @@ const namedBodyReference = (name: string): NamedAssetBodyReference => ({
   scope: 'project'
 });
 
-describe('Asset Manager composition API', () => {
+describe('Asset Cache composition API', () => {
   const project = {};
   const createSVGSkin = vi.fn(() => 41);
   const createBitmapSkin = vi.fn((_bitmap: ImageBitmap, _resolution: number) => 42);

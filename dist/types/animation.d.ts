@@ -2,7 +2,7 @@ import { AssetManagerExtension } from './extension.js';
 import { type AssetManagerFeatureFlags } from './feature-flags.js';
 type BlockArgs = Record<string, unknown>;
 /**
- * Asset Manager with actor-level background asset animation.
+ * Asset Cache with actor-level background asset animation.
  *
  * ACTOR is resolved from a clone-local actorName variable before falling back
  * to the existing named-sprite behaviour of setSpriteSkin.

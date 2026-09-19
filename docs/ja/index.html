@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="TurboWarp-Asset-Manager 拡張の図解入り利用者ガイド。">
-  <title>TurboWarp-Asset-Manager 利用ガイド</title>
-  <link rel="canonical" href="https://kubohiroya.github.io/turbowarp-asset-manager/ja/">
-  <link rel="alternate" hreflang="en" href="https://kubohiroya.github.io/turbowarp-asset-manager/">
-  <link rel="alternate" hreflang="ja" href="https://kubohiroya.github.io/turbowarp-asset-manager/ja/">
-  <link rel="alternate" hreflang="x-default" href="https://kubohiroya.github.io/turbowarp-asset-manager/">
+  <meta name="description" content="TurboWarp-Asset-Cache 拡張の図解入り利用者ガイド。">
+  <title>TurboWarp-Asset-Cache 利用ガイド</title>
+  <link rel="canonical" href="https://kubohiroya.github.io/turbowarp-asset-cache/ja/">
+  <link rel="alternate" hreflang="en" href="https://kubohiroya.github.io/turbowarp-asset-cache/">
+  <link rel="alternate" hreflang="ja" href="https://kubohiroya.github.io/turbowarp-asset-cache/ja/">
+  <link rel="alternate" hreflang="x-default" href="https://kubohiroya.github.io/turbowarp-asset-cache/">
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../assets/site.css">
 </head>
@@ -16,9 +16,9 @@
   <a class="skip-link" href="#main">ガイド本文へ移動</a>
   <header class="app-bar">
     <div class="app-bar-inner">
-      <a class="app-bar-brand" href="./" aria-label="Asset Manager 利用ガイドの先頭">
+      <a class="app-bar-brand" href="./" aria-label="Asset Cache 利用ガイドの先頭">
         <span class="app-bar-mark" aria-hidden="true">A</span>
-        <span class="app-bar-label">Asset Manager</span>
+        <span class="app-bar-label">Asset Cache</span>
       </a>
       <nav class="app-bar-sections" aria-label="ガイドのセクション">
         <a href="#quick-start">はじめに</a>
@@ -29,7 +29,7 @@
         <a href="#reference">ブロック一覧</a>
       </nav>
       <div class="app-bar-actions">
-        <a class="app-bar-github" href="https://github.com/kubohiroya/turbowarp-asset-manager" aria-label="GitHubでソースコードとリリースを見る">GitHub</a>
+        <a class="app-bar-github" href="https://github.com/kubohiroya/turbowarp-asset-cache" aria-label="GitHubでソースコードとリリースを見る">GitHub</a>
         <nav class="app-bar-languages" aria-label="言語">
           <a href="../" hreflang="en" lang="en">English</a>
           <a href="./" hreflang="ja" lang="ja" aria-current="page">日本語</a>
@@ -44,7 +44,7 @@
         <p class="eyebrow">TurboWarp カスタム拡張機能 · v0.14.0</p>
         <h1 id="hero-title">すべての素材を、ひとつの名前で扱う。</h1>
         <p class="hero-copy">
-          Asset Manager は、Web 上の画像・音声、プロジェクト内のコスチューム・背景・音、
+          Asset Cache は、Web 上の画像・音声、プロジェクト内のコスチューム・背景・音、
           そして動的なテキストを登録します。表示、再生、アニメーション、キャッシュを、
           共通のブロックとアセット名で操作できます。
         </p>
@@ -71,7 +71,7 @@
       <p class="eyebrow">紙芝居DSL 4.0集約ランタイム</p>
       <h2 id="dsl4-bundle-title">集約されたブロックも、このリファレンスを使います。</h2>
       <p class="section-intro">
-        DSL 4.0ランタイムのパレットで<strong>Asset Manager</strong>の見出しを探し、その直下の
+        DSL 4.0ランタイムのパレットで<strong>Asset Cache</strong>の見出しを探し、その直下の
         ドキュメントボタンを押すと、このガイドが開きます。集約後もブロックの意味と名前は同じで、
         ランタイムが拡張機能別の名前空間とアイコンを加えます。
       </p>
@@ -86,7 +86,7 @@
       <p class="eyebrow">クイックスタート</p>
       <h2 id="quick-start-title">読み込む、登録する、使う。</h2>
       <p class="section-intro">
-        Asset Manager は TurboWarp のレンダラー、音声機能、プロジェクト内リソースを利用するため、
+        Asset Cache は TurboWarp のレンダラー、音声機能、プロジェクト内リソースを利用するため、
         サンドボックスを無効にして実行する必要があります。
       </p>
 
@@ -94,7 +94,7 @@
         <li>
           <h3>拡張機能を読み込む</h3>
           <p>TurboWarp で <strong>拡張機能を追加 → カスタム拡張機能</strong>を選び、次の URL を貼り付けます。</p>
-          <pre><code>https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-manager@0.16.0/dist/asset-manager.js</code></pre>
+          <pre><code>https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-cache@0.1.0/dist/asset-cache.js</code></pre>
           <p><strong>サンドボックスなしで実行</strong>を有効にします。</p>
         </li>
         <li>
@@ -261,7 +261,7 @@
       <pre><code>import {
   createAssetManagerComposition,
   createVerifiedRemoteCacheDatabaseName
-} from '@kubohiroya/turbowarp-asset-manager/composition';
+} from '@kubohiroya/turbowarp-asset-cache/composition';
 
 const databaseName = createVerifiedRemoteCacheDatabaseName({
   id: story.cacheId,
@@ -285,7 +285,7 @@ const result = await assets.resolveVerifiedRemoteBinary(model, {
       <figure class="diagram" aria-describedby="composition-cache-description">
         <figcaption>永続キャッシュと、実体化後のメモリーは別々のライフサイクルで管理する</figcaption>
         <p id="composition-cache-description" class="sr-only">
-          台本 manifest から安定した台本 ID と可読なファイル名を渡します。Asset Manager は台本ごとの
+          台本 manifest から安定した台本 ID と可読なファイル名を渡します。Asset Cache は台本ごとの
           IndexedDB を識別し、取得データを検証してホストへ返します。ホストは画像、音声、モデルとして
           実体化し、scene または story の保持期間に従ってメモリー上のリソースを解放します。その際、
           永続化された検証済みデータは削除しません。
@@ -340,7 +340,7 @@ const result = await assets.resolveVerifiedRemoteBinary(model, {
         <code>renewVerifiedRemoteStoryCacheLease</code> と
         <code>releaseVerifiedRemoteStoryCacheLease</code> を使います。DSL の
         <code>retention: scene</code> と <code>retention: story</code> はホスト側のメモリー保持方針です。
-        Asset Manager は YAML を解釈せず、これらを IndexedDB の TTL として扱いません。
+        Asset Cache は YAML を解釈せず、これらを IndexedDB の TTL として扱いません。
       </p>
       <aside class="callout callout-warning">
         <strong>IndexedDB は補助キャッシュであり、秘密情報の保管場所ではありません。</strong>
@@ -380,7 +380,7 @@ const stored = await assets.getBinaryBundle({
       <figure class="diagram" aria-describedby="composition-bundles-description">
         <figcaption>1 transactionのcommit後にだけ完全なbundleを公開する</figcaption>
         <p id="composition-bundles-description" class="sr-only">
-          ホストが台本単位のkeyとbundle全fileを渡します。Asset Managerは宣言されたsizeとSHA-256を
+          ホストが台本単位のkeyとbundle全fileを渡します。Asset Cacheは宣言されたsizeとSHA-256を
           fileごとに検証し、bundleとmetadataを1つのIndexedDB transactionでcommitします。後のreadでも
           bundle全体を再検証し、missing、partial、corruptなrecordは返しません。
         </p>
@@ -457,7 +457,7 @@ await backing.dispose();</code></pre>
       <figure class="diagram" aria-describedby="replacement-description">
         <figcaption>新しい内容の準備が完了してからライブ置換を確定する</figcaption>
         <p id="replacement-description" class="sr-only">
-          Asset Manager は新しい内容を準備し、登録簿を更新し、同じアセット名と公開種別に結び付いている
+          Asset Cache は新しい内容を準備し、登録簿を更新し、同じアセット名と公開種別に結び付いている
           対象だけへ表示を適用し直し、成功後に古い所有リソースを解放します。準備や表示の再適用に失敗した
           場合は、古い登録、表示、キャッシュを復元します。
         </p>
@@ -473,7 +473,7 @@ await backing.dispose();</code></pre>
         アニメーションを先頭から開始します。再生中の音声は中断せず、次回再生から新しい登録を使います。
         同名の確定処理は直列に実行されるため、開始済みの確定処理は一貫した状態まで完了し、最後に開始された
         成功済み登録が残ります。後から開始した無効な試行は、先行する有効な登録を取り消しません。画像では
-        再適用前に Asset Manager が設定した renderer skin が現在も使われているか確認します。別の衣装変更や
+        再適用前に Asset Cache が設定した renderer skin が現在も使われているか確認します。別の衣装変更や
         renderer 更新があった対象は古い表示管理から外し、その新しい表示を上書きしません。strict kind を
         有効にすると、公開種別 <code>external</code>、<code>costume</code>、
         <code>backdrop</code>、<code>sound</code>、<code>text</code> 間の変更と、external の画像・音声間の
@@ -492,7 +492,7 @@ await backing.dispose();</code></pre>
         0.4.0では、以下の大文字診断コードを返します。
       </p>
       <p>
-        利用者向けエラーは <code>[Asset Manager][CODE]</code> で始まり、操作名、asset/resource/actor 名、
+        利用者向けエラーは <code>[Asset Cache][CODE]</code> で始まり、操作名、asset/resource/actor 名、
         修正ヒント、近い候補、元の例外を保持します。登録エラーの Reporter は最新のコードと関連名を返します。
         同期失敗は同じ内容を二重ログせず throw し、バックグラウンドの再生・アニメーション失敗だけを
         文脈付きで 1 回 <code>console.error</code> します。
@@ -552,7 +552,7 @@ await backing.dispose();</code></pre>
         <figcaption>表示のたびに最新の本文とスタイルを読み直す</figcaption>
         <p id="text-description" class="sr-only">
           Narration テキストを登録し、本文と必要なスタイルを設定します。表示ブロックが実行されると、
-          Asset Manager は Temporary Variables の最新値を読み、すべてのスタイルを適用し直して、
+          Asset Cache は Temporary Variables の最新値を読み、すべてのスタイルを適用し直して、
           Animated Text に対象スプライトへの表示を依頼します。表示中の本文を更新すると、そのアセットを
           表示中のすべての対象が更新されます。
         </p>
@@ -688,8 +688,8 @@ await backing.dispose();</code></pre>
 
   <footer class="site-footer">
     <div class="footer-inner">
-      <p>TurboWarp-Asset-Manager · MPL-2.0</p>
-      <p><a href="https://github.com/kubohiroya/turbowarp-asset-manager/issues">問題を報告</a></p>
+      <p>TurboWarp-Asset-Cache · MPL-2.0</p>
+      <p><a href="https://github.com/kubohiroya/turbowarp-asset-cache/issues">問題を報告</a></p>
     </div>
   </footer>
 </body>

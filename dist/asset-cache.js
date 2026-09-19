@@ -1,5 +1,5 @@
-// Name: Asset Manager
-// ID: kubohiroyaassetmanager
+// Name: Asset Cache
+// ID: kubohiroyaassetcache
 // Description: Register, cache, display, and play image, audio, and runtime text assets in TurboWarp.
 // By: Hiroya Kubo
 // License: MPL-2.0
@@ -8,7 +8,7 @@
   'use strict';
 
   var block_definitions_default = {
-    extensionName: "Asset Manager",
+    extensionName: "Asset Cache",
     blocks: [
       {
         "opcode": "registerAsset",
@@ -105,7 +105,7 @@
         "opcode": "setTextValue",
         "blockType": "COMMAND",
         "text": "set text asset [NAME] to [VALUE]",
-        "description": "Sets the runtime text value for a text asset using Asset Manager's internal namespace.",
+        "description": "Sets the runtime text value for a text asset using Asset Cache's internal namespace.",
         "arguments": {
           "NAME": {
             "type": "STRING",
@@ -264,7 +264,7 @@
         "opcode": "stopAllSounds",
         "blockType": "COMMAND",
         "text": "stop all asset sounds",
-        "description": "Stops all external and project sounds currently tracked by Asset Manager.",
+        "description": "Stops all external and project sounds currently tracked by Asset Cache.",
         "arguments": {}
       },
       {
@@ -280,8 +280,8 @@
       {
         "opcode": "getVersion",
         "blockType": "REPORTER",
-        "text": "Asset Manager version",
-        "description": "Returns the Asset Manager implementation version.",
+        "text": "Asset Cache version",
+        "description": "Returns the Asset Cache implementation version.",
         "arguments": {}
       }
     ]
@@ -615,11 +615,11 @@
     }) : e[r] = t, e;
   }
   //#endregion
-  //#region src/asset-manager-error.ts
+  //#region src/asset-cache-error.ts
   var AssetManagerError = class extends Error {
     constructor(code, message, context) {
       const hintText = context.hint ? ` ${context.hint}` : "";
-      super(`[Asset Manager][${code}] ${message}${hintText}`, { cause: context.cause });
+      super(`[Asset Cache][${code}] ${message}${hintText}`, { cause: context.cause });
       _defineProperty(this, "code", void 0);
       _defineProperty(this, "operation", void 0);
       _defineProperty(this, "assetName", void 0);
@@ -1077,11 +1077,11 @@
   }
   //#endregion
   //#region src/extension.ts
-  var EXTENSION_ID = "kubohiroyaassetmanager";
+  var EXTENSION_ID = "kubohiroyaassetcache";
   var EXTENSION_VERSION = "0.14.0";
-  var EXTENSION_DOCS_URI = "https://kubohiroya.github.io/turbowarp-asset-manager/";
+  var EXTENSION_DOCS_URI = "https://kubohiroya.github.io/turbowarp-asset-cache/";
   var BLOCK_ICON_URI = `data:image/svg+xml,${encodeURIComponent("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><path fill=\"#fff\" d=\"M19 47 29 17h7l10 30h-7l-2-7H27l-2 7h-6Zm10-13h6l-3-10-3 10Z\"/></svg>")}`;
-  var DB_NAME = "tw-asset-manager";
+  var DB_NAME = "tw-asset-cache";
   var DB_VERSION = 1;
   var STORE_NAME = "assets";
   var STAGE_RESOURCE_NAME = "@stage";
@@ -3111,7 +3111,7 @@
   //#endregion
   //#region src/animation.ts
   /**
-  * Asset Manager with actor-level background asset animation.
+  * Asset Cache with actor-level background asset animation.
   *
   * ACTOR is resolved from a clone-local actorName variable before falling back
   * to the existing named-sprite behaviour of setSpriteSkin.
@@ -3381,7 +3381,7 @@
   };
   //#endregion
   //#region src/index.ts
-  if (!Scratch.extensions.unsandboxed) throw new Error("Asset Manager must run unsandboxed.");
+  if (!Scratch.extensions.unsandboxed) throw new Error("Asset Cache must run unsandboxed.");
   Scratch.extensions.register(new AnimatedAssetManagerExtension());
   //#endregion
 

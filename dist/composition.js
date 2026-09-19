@@ -1,5 +1,5 @@
 var block_definitions_default = {
-	extensionName: "Asset Manager",
+	extensionName: "Asset Cache",
 	blocks: [
 		{
 			"opcode": "registerAsset",
@@ -96,7 +96,7 @@ var block_definitions_default = {
 			"opcode": "setTextValue",
 			"blockType": "COMMAND",
 			"text": "set text asset [NAME] to [VALUE]",
-			"description": "Sets the runtime text value for a text asset using Asset Manager's internal namespace.",
+			"description": "Sets the runtime text value for a text asset using Asset Cache's internal namespace.",
 			"arguments": {
 				"NAME": {
 					"type": "STRING",
@@ -255,7 +255,7 @@ var block_definitions_default = {
 			"opcode": "stopAllSounds",
 			"blockType": "COMMAND",
 			"text": "stop all asset sounds",
-			"description": "Stops all external and project sounds currently tracked by Asset Manager.",
+			"description": "Stops all external and project sounds currently tracked by Asset Cache.",
 			"arguments": {}
 		},
 		{
@@ -271,8 +271,8 @@ var block_definitions_default = {
 		{
 			"opcode": "getVersion",
 			"blockType": "REPORTER",
-			"text": "Asset Manager version",
-			"description": "Returns the Asset Manager implementation version.",
+			"text": "Asset Cache version",
+			"description": "Returns the Asset Cache implementation version.",
 			"arguments": {}
 		}
 	]
@@ -568,7 +568,7 @@ function configuredFlag$1(name) {
 }
 Object.freeze({ NAMED_DATA_REGISTRY_MVP: configuredFlag$1("NAMED_DATA_REGISTRY_MVP") });
 //#endregion
-//#region src/asset-manager-error.ts
+//#region src/asset-cache-error.ts
 var AssetManagerError = class extends Error {
 	code;
 	operation;
@@ -581,7 +581,7 @@ var AssetManagerError = class extends Error {
 	candidates;
 	constructor(code, message, context) {
 		const hintText = context.hint ? ` ${context.hint}` : "";
-		super(`[Asset Manager][${code}] ${message}${hintText}`, { cause: context.cause });
+		super(`[Asset Cache][${code}] ${message}${hintText}`, { cause: context.cause });
 		this.name = "AssetManagerError";
 		this.code = code;
 		this.operation = context.operation;
@@ -1031,11 +1031,11 @@ function resolveTextStyle(name, stageWidth, getRuntimeVariable) {
 }
 //#endregion
 //#region src/extension.ts
-var EXTENSION_ID = "kubohiroyaassetmanager";
+var EXTENSION_ID = "kubohiroyaassetcache";
 var EXTENSION_VERSION = "0.14.0";
-var EXTENSION_DOCS_URI = "https://kubohiroya.github.io/turbowarp-asset-manager/";
+var EXTENSION_DOCS_URI = "https://kubohiroya.github.io/turbowarp-asset-cache/";
 var BLOCK_ICON_URI = `data:image/svg+xml,${encodeURIComponent("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><path fill=\"#fff\" d=\"M19 47 29 17h7l10 30h-7l-2-7H27l-2 7h-6Zm10-13h6l-3-10-3 10Z\"/></svg>")}`;
-var DB_NAME = "tw-asset-manager";
+var DB_NAME = "tw-asset-cache";
 var DB_VERSION = 1;
 var STORE_NAME = "assets";
 var STAGE_RESOURCE_NAME = "@stage";
@@ -3253,7 +3253,7 @@ function createOpfsBinaryObjectStore(options = {}) {
 		try {
 			const originRoot = options.rootDirectory ?? await (options.storage ?? globalThis.navigator?.storage)?.getDirectory();
 			if (!originRoot) throw objectError("ASSET_BINARY_OPFS_UNSUPPORTED", "OPFS is unavailable.");
-			const root = await childDirectory(await childDirectory(originRoot, "tw-asset-manager"), "opfs-v1");
+			const root = await childDirectory(await childDirectory(originRoot, "tw-asset-cache"), "opfs-v1");
 			return {
 				objects: await childDirectory(root, "objects"),
 				staging: await childDirectory(root, "staging")
@@ -3443,7 +3443,7 @@ function createIndexedDBBinaryObjectStore(options = {}) {
 	if (!options || typeof options !== "object" || Array.isArray(options)) throw new TypeError("IndexedDB binary object store options must be an object.");
 	const indexedDB = options.indexedDB ?? globalThis.indexedDB;
 	const subtleCrypto = options.subtleCrypto ?? globalThis.crypto?.subtle;
-	const databaseName = options.databaseName ?? "tw-asset-manager-binary-objects-v1";
+	const databaseName = options.databaseName ?? "tw-asset-cache-binary-objects-v1";
 	if (typeof databaseName !== "string" || databaseName.length === 0 || databaseName.length > 512 || databaseName.includes("\0")) throw new TypeError("databaseName must be a non-empty string of at most 512 code units.");
 	if (!subtleCrypto?.digest) throw objectError("ASSET_BINARY_CRYPTO_UNAVAILABLE", "SHA-256 is unavailable.");
 	let released = false;
@@ -4391,7 +4391,7 @@ function createOpfsBinaryBundleStore(options) {
 }
 //#endregion
 //#region src/binary-bundle-store.ts
-var DEFAULT_DATABASE_NAME$1 = "tw-asset-manager-binary-bundles-v1";
+var DEFAULT_DATABASE_NAME$1 = "tw-asset-cache-binary-bundles-v1";
 var DATABASE_VERSION$2 = 1;
 var BUNDLE_STORE$1 = "bundles";
 var METADATA_STORE$1 = "bundleMetadata";
@@ -5656,7 +5656,7 @@ var StoryCacheCatalog = class {
 };
 //#endregion
 //#region src/verified-remote-cache.ts
-var DATABASE_NAME = "tw-asset-manager-verified-binary-v1";
+var DATABASE_NAME = "tw-asset-cache-verified-binary-v1";
 var DATABASE_VERSION$1 = 2;
 var ENTRY_STORE = "entries";
 var METADATA_STORE = "metadata";
@@ -6911,7 +6911,7 @@ function createVerifiedRemoteBinaryCache(options = {}) {
 }
 //#endregion
 //#region src/session-binary-backing.ts
-var DEFAULT_DATABASE_NAME = "tw-asset-manager-session-binary-v1";
+var DEFAULT_DATABASE_NAME = "tw-asset-cache-session-binary-v1";
 var DATABASE_VERSION = 1;
 var SESSION_STORE = "sessions";
 var BUNDLE_STORE = "sessionBinaryBundles";
@@ -7896,7 +7896,7 @@ async function createSessionBinaryBacking(inputValue, optionValue = {}, operatio
 //#endregion
 //#region src/composition.ts
 function createAssetManagerComposition(featureFlags, options = {}) {
-	if (!options || typeof options !== "object" || Array.isArray(options)) throw new TypeError("Asset Manager composition options must be an object.");
+	if (!options || typeof options !== "object" || Array.isArray(options)) throw new TypeError("Asset Cache composition options must be an object.");
 	const extension = featureFlags ? new AssetManagerExtension(featureFlags) : new AssetManagerExtension();
 	const ownedNames = /* @__PURE__ */ new Map();
 	let literalNameSequence = 0;
@@ -7942,7 +7942,7 @@ function createAssetManagerComposition(featureFlags, options = {}) {
 			internal: existing,
 			previouslyOwned: true
 		};
-		const internal = mode === "literal" ? `\u0000asset-manager-composition:${++literalNameSequence}` : external;
+		const internal = mode === "literal" ? `\u0000asset-cache-composition:${++literalNameSequence}` : external;
 		ownedNames.set(external, internal);
 		return {
 			external,
