@@ -4,6 +4,13 @@ A browser-local image, audio, and runtime-text asset cache for TurboWarp project
 
 Asset Cache intentionally keeps the legacy `isLoaded` and cache lifecycle semantics. It is not a general server object store: every block is marked `server.supported: false` in the format 2 manifest. Use [`@kubohiroya/turbowarp-kvs`](https://github.com/kubohiroya/turbowarp-kvs) for portable namespace/key persistence and server lowering.
 
+`@kubohiroya/turbowarp-asset-manager` is deprecated. Composition consumers can replace its import
+path with `@kubohiroya/turbowarp-asset-cache/composition` for asset registration, rendering,
+playback, DOM image resources, and verified remote-cache APIs. Import binary object, bundle, and
+session-backing APIs directly from `@kubohiroya/turbowarp-kvs`. Standalone projects must also
+replace the extension ID `kubohiroyaassetmanager` with `kubohiroyaassetcache`; published historical
+SB3 artifacts should remain pinned to their original extension.
+
 ## User Guide
 
 For setup, safety notes, recipes, and the illustrated block guide, see the [English user guide](https://kubohiroya.github.io/turbowarp-asset-cache/) or [Japanese user guide](https://kubohiroya.github.io/turbowarp-asset-cache/ja/).
