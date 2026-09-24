@@ -1,6 +1,6 @@
 {
   "name": "@kubohiroya/turbowarp-asset-cache",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A browser-local image, audio, and runtime-text asset cache for TurboWarp projects.",
   "author": "Hiroya Kubo <hiroya@cuc.ac.jp>",
   "type": "module",
