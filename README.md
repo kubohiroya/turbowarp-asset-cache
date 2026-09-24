@@ -48,13 +48,13 @@ The built JavaScript file is committed to this repository so users do not need t
 The versioned npm package contains the same reviewed build:
 
 ```bash
-pnpm add --save-exact @kubohiroya/turbowarp-asset-cache@0.1.0
+pnpm add --save-exact @kubohiroya/turbowarp-asset-cache@0.2.1
 ```
 
 Load `node_modules/@kubohiroya/turbowarp-asset-cache/dist/asset-cache.js`, or use the version-pinned CDN URL:
 
 ```text
-https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-cache@0.1.0/dist/asset-cache.js
+https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-cache@0.2.1/dist/asset-cache.js
 ```
 
 ## Quick Start

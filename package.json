@@ -1,6 +1,6 @@
 {
   "name": "@kubohiroya/turbowarp-asset-cache",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "A browser-local image, audio, and runtime-text asset cache for TurboWarp projects.",
   "author": "Hiroya Kubo <hiroya@cuc.ac.jp>",
   "type": "module",
@@ -60,8 +60,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@kubohiroya/turbowarp-extension-manifest": "0.3.0",
     "@kubohiroya/turbowarp-named-data": "0.1.0",
-    "@kubohiroya/turbowarp-extension-manifest": "0.2.0",
     "@kubohiroya/vite-plugin-turbowarp-extension": "0.4.0",
     "@types/node": "^22.20.1",
     "@xmldom/xmldom": "0.9.11",
@@ -73,7 +73,7 @@
     "vitest": "^4.1.10"
   },
   "peerDependencies": {
-    "@kubohiroya/turbowarp-named-data": "^0.1.0"
+    "@kubohiroya/turbowarp-named-data": ">=0.1.0 <1"
   },
   "keywords": [
     "turbowarp",
