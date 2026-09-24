@@ -1,37 +1,52 @@
-import {createExtensionManifest, type ExtensionManifest, type ExtensionManifestBlock} from '@kubohiroya/turbowarp-extension-manifest';
+import {
+  createExtensionManifest,
+  serializeExtensionManifest,
+  type ExtensionManifest,
+  type ExtensionManifestBlock
+} from '@kubohiroya/turbowarp-extension-manifest';
 
-export interface AssetCacheManifestBlock extends ExtensionManifestBlock {
-  resultType: 'boolean' | 'string' | 'void';
-  effect: 'control' | 'pure' | 'storage-write';
-  immutable: boolean;
-  errors: string[];
-  server: {supported: false};
-}
+/** The format version 2 fields, which the package models as optional on a block. */
+export type AssetCacheBlockMetadata = Required<
+  Pick<ExtensionManifestBlock, 'effect' | 'errors' | 'immutable' | 'resultType' | 'server'>
+>;
 
-export interface AssetCacheManifest extends Omit<ExtensionManifest, 'formatVersion' | 'blocks'> {
-  formatVersion: 2;
-  blocks: AssetCacheManifestBlock[];
-}
-
-export function createAssetCacheManifest(id: string, definitions: unknown): AssetCacheManifest {
-  const base = createExtensionManifest(id, definitions);
-  return {
-    formatVersion: 2,
-    id: base.id,
-    blocks: base.blocks.map((block) => ({
-      ...block,
+/**
+ * Derives this extension's format version 2 metadata from its block definitions.
+ *
+ * The contract itself — which fields exist and what values they may take — belongs to
+ * @kubohiroya/turbowarp-extension-manifest. Only the policy is local: which of these blocks writes
+ * to the asset store, and which merely reports.
+ */
+export function assetCacheBlockMetadata(definitions: unknown): Record<string, AssetCacheBlockMetadata> {
+  const blocks = (definitions as {blocks: {opcode: string; blockType: string}[]}).blocks;
+  const metadata: Record<string, AssetCacheBlockMetadata> = {};
+  for (const block of blocks) {
+    metadata[block.opcode] = {
       resultType: resultType(block.blockType),
-      effect: block.opcode.includes('CachedAsset') ? 'storage-write' : isReporter(block.blockType) ? 'pure' : 'control',
+      effect: block.opcode.includes('CachedAsset')
+        ? 'storage-write'
+        : isReporter(block.blockType)
+          ? 'pure'
+          : 'control',
       immutable: isReporter(block.blockType),
       errors: [],
+      // Nothing here is lowered on a server yet.
       server: {supported: false}
-    })),
-    menus: base.menus
-  };
+    };
+  }
+  return metadata;
+}
+
+export function createAssetCacheManifest(id: string, definitions: unknown): ExtensionManifest {
+  return createExtensionManifest(id, definitions, options(definitions));
 }
 
 export function serializeAssetCacheManifest(id: string, definitions: unknown): string {
-  return `${JSON.stringify(createAssetCacheManifest(id, definitions), null, 2)}\n`;
+  return serializeExtensionManifest(id, definitions, options(definitions));
+}
+
+function options(definitions: unknown) {
+  return {formatVersion: 2, blockMetadata: assetCacheBlockMetadata(definitions)} as const;
 }
 
 function isReporter(blockType: string): boolean {

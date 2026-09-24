@@ -17,7 +17,7 @@ describe('extension API manifest', () => {
       definitions.blocks.map((block) => block.opcode).sort()
     );
     expect(manifest.formatVersion).toBe(2);
-    expect(manifest.blocks.every((block) => block.server.supported === false)).toBe(true);
+    expect(manifest.blocks.every((block) => block.server?.supported === false)).toBe(true);
   });
 
   it('rejects an invalid extension ID', () => {
