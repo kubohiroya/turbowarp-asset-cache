@@ -686,6 +686,14 @@ await backing.dispose();</code></pre>
     </section>
   </main>
 
+  <section id="fixed-input-editors" class="section" aria-labelledby="fixed-input-editors-title">
+    <h2 id="fixed-input-editors-title">任意の固定入力エディター</h2>
+    <p>対応GUIで <code>?blockEditorDialogs=1&amp;blockEditorFixedInputs=1</code> を指定して再読込します。既定OFFで、従来のブロックはそのまま使えます。</p>
+    <article id="block-setTextStyle"><h3>setTextStyle の PROPERTY／VALUE</h3><p>PROPERTYはanimation・font・color・width・alignから選び、VALUEは固定選択・自由入力・色・正の有限数値文字列へ切り替わります。空文字で既定値へ戻します。NAMEは編集しません。既存のtyping別名・短縮色・大小文字・元の表記は、変更しなければ保持します。PROPERTY変更後にVALUEが不適合なら、修正またはリセットまで保存しません。</p></article>
+    <article id="block-loadingCostumeAt"><h3>loadingCostumeAt の INDEX</h3><p>有限数値を入力します。整数や1以上という新しい制約は追加しません。既存実行処理で切捨て・1以上への補正・個数による循環を行います。この互換ブロックをパレットに再表示しません。</p></article>
+    <p>接続済みreporterは読取専用で評価しません。selectorがreporter・欠落・非対応ならVALUEも読取専用です。VALUEがreporterのままPROPERTYを変更できません。保存失敗時は同じ画面のdraftを保持し、取消・終了・runtime破棄時に捨てます。素材名・font候補・実行時registryへ問い合わせません。<a href="../fixed-input-editors.ja.md">契約の正本・検証・切戻し</a></p>
+  </section>
+
   <footer class="site-footer">
     <div class="footer-inner">
       <p>TurboWarp-Asset-Cache · MPL-2.0</p>
