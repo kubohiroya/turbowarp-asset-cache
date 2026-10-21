@@ -7,6 +7,334 @@
 (function (Scratch) {
   'use strict';
 
+  //#region src/audio-voice.ts
+  function normalizeAudioVoiceGain(value, label = "Audio voice gain") {
+    const gain = value === void 0 ? 1 : value;
+    if (typeof gain !== "number" || !Number.isFinite(gain) || gain < 0 || gain > 1) throw new TypeError(`${label} must be a finite number from 0 to 1.`);
+    return gain;
+  }
+  //#endregion
+  //#region src/audio-playback.ts
+  function rate(value) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < .25 || value > 4) throw new TypeError("Audio playback rate must be from 0.25 to 4.");
+    return value;
+  }
+  function validateAudioPlaybackOptions(options) {
+    if (!options || typeof options !== "object" || Array.isArray(options) || Object.keys(options).some((key) => ![
+      "gain",
+      "muted",
+      "playbackRate",
+      "fadeIn",
+      "fadeOut"
+    ].includes(key))) throw new TypeError("Invalid audio playback options.");
+    normalizeAudioVoiceGain(options.gain);
+    if (options.muted !== void 0 && typeof options.muted !== "boolean") throw new TypeError("Audio muted must be a boolean.");
+    rate(options.playbackRate ?? 1);
+    fadeSeconds(options.fadeIn, "fadeIn");
+    fadeSeconds(options.fadeOut, "fadeOut");
+  }
+  function fadeSeconds(value, label) {
+    const seconds = value === void 0 ? 0 : value;
+    if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) throw new TypeError(`Audio ${label} must be a finite non-negative number of seconds.`);
+    return seconds;
+  }
+  function aborted() {
+    const error = /* @__PURE__ */ new Error("Audio playback was cancelled.");
+    error.name = "AbortError";
+    return error;
+  }
+  /** One reusable native element; the caller owns source resolution and resource release. */
+  function createBrowserAudioPlayback(audio, options, release, playbackError) {
+    validateAudioPlaybackOptions(options);
+    let gain = normalizeAudioVoiceGain(options.gain);
+    audio.volume = gain;
+    audio.muted = options.muted ?? false;
+    audio.playbackRate = options.playbackRate ?? 1;
+    audio.loop = false;
+    const defaultFadeIn = fadeSeconds(options.fadeIn, "fadeIn");
+    const defaultFadeOut = fadeSeconds(options.fadeOut, "fadeOut");
+    let activeFadeIn = defaultFadeIn;
+    let activeFadeOut = defaultFadeOut;
+    let envelope = 1;
+    let fadeStarted = 0;
+    let playing = false;
+    let fadeTimer;
+    let stopping;
+    let disposed = false;
+    let generation = 0;
+    let ended = Promise.resolve();
+    let settle;
+    let rejectStart;
+    let detachAbort;
+    const pendingMetadata = /* @__PURE__ */ new Set();
+    const requireActive = () => {
+      if (disposed) throw new Error("Audio playback is disposed.");
+    };
+    const clearFadeTimer = () => {
+      if (fadeTimer !== void 0) clearTimeout(fadeTimer);
+      fadeTimer = void 0;
+    };
+    const finish = (error) => {
+      playing = false;
+      clearFadeTimer();
+      const previousStop = stopping;
+      stopping = void 0;
+      previousStop?.detach();
+      previousStop?.reject(error ?? aborted());
+      generation++;
+      rejectStart?.(error ?? aborted());
+      rejectStart = void 0;
+      detachAbort?.();
+      detachAbort = void 0;
+      settle?.(error);
+      settle = void 0;
+    };
+    const writeVolume = () => {
+      audio.volume = gain * envelope;
+    };
+    const stopNow = () => {
+      const completed = stopping;
+      stopping = void 0;
+      completed?.detach();
+      audio.pause();
+      audio.loop = false;
+      audio.currentTime = 0;
+      finish();
+      envelope = 1;
+      writeVolume();
+      completed?.resolve();
+    };
+    const refreshFade = () => {
+      clearFadeTimer();
+      if (disposed || !playing && !stopping) return;
+      const now = performance.now();
+      let delay = 16;
+      if (stopping) {
+        const progress = Math.min(1, (now - stopping.started) / (stopping.seconds * 1e3));
+        envelope = stopping.from * (1 - progress);
+        writeVolume();
+        if (progress >= 1) {
+          stopNow();
+          return;
+        }
+      } else {
+        const fadeIn = activeFadeIn === 0 ? 1 : Math.min(1, (now - fadeStarted) / (activeFadeIn * 1e3));
+        const remaining = Number.isFinite(audio.duration) ? Math.max(0, audio.duration - audio.currentTime) / audio.playbackRate : Infinity;
+        const fadeOut = !audio.loop && activeFadeOut > 0 ? Math.min(1, remaining / activeFadeOut) : 1;
+        envelope = Math.max(0, Math.min(fadeIn, fadeOut));
+        writeVolume();
+        if (fadeIn >= 1) {
+          if (audio.loop || activeFadeOut === 0) return;
+          if (!Number.isFinite(remaining)) delay = 250;
+          else if (remaining > activeFadeOut) delay = Math.min(250, Math.max(16, (remaining - activeFadeOut) * 1e3));
+        }
+      }
+      fadeTimer = setTimeout(refreshFade, delay);
+    };
+    const onEnded = () => {
+      if (stopping) {
+        stopNow();
+        return;
+      }
+      finish();
+      if (activeFadeOut > 0 && !audio.loop) {
+        envelope = 0;
+        writeVolume();
+      }
+    };
+    const onError = () => {
+      audio.pause();
+      const error = playbackError(audio.error ?? /* @__PURE__ */ new Error("The browser audio element reported a playback error."));
+      finish(error);
+      for (const complete of pendingMetadata) complete(error);
+    };
+    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("error", onError);
+    for (const event of [
+      "durationchange",
+      "ratechange",
+      "seeked"
+    ]) audio.addEventListener(event, refreshFade);
+    return Object.freeze({
+      get ended() {
+        return ended;
+      },
+      get currentTime() {
+        return audio.currentTime;
+      },
+      get paused() {
+        return audio.paused;
+      },
+      get loop() {
+        return audio.loop;
+      },
+      get gain() {
+        return gain;
+      },
+      get muted() {
+        return audio.muted;
+      },
+      get playbackRate() {
+        return audio.playbackRate;
+      },
+      async play(playOptions = {}) {
+        requireActive();
+        if (!playOptions || typeof playOptions !== "object" || Array.isArray(playOptions) || Object.keys(playOptions).some((key) => ![
+          "restart",
+          "loop",
+          "signal",
+          "fadeIn",
+          "fadeOut"
+        ].includes(key)) || playOptions.restart !== void 0 && typeof playOptions.restart !== "boolean" || playOptions.loop !== void 0 && typeof playOptions.loop !== "boolean") throw new TypeError("Invalid audio play options.");
+        const fadeIn = fadeSeconds(playOptions.fadeIn === void 0 ? defaultFadeIn : playOptions.fadeIn, "fadeIn");
+        const fadeOut = fadeSeconds(playOptions.fadeOut === void 0 ? defaultFadeOut : playOptions.fadeOut, "fadeOut");
+        const signal = playOptions.signal;
+        if (signal?.aborted) throw aborted();
+        finish();
+        const run = generation;
+        if (playOptions.restart) audio.currentTime = 0;
+        audio.loop = playOptions.loop ?? audio.loop;
+        activeFadeIn = fadeIn;
+        activeFadeOut = fadeOut;
+        envelope = fadeIn > 0 ? 0 : 1;
+        writeVolume();
+        ended = new Promise((resolve, reject) => {
+          settle = (error) => error === void 0 ? resolve() : reject(error);
+        });
+        ended.catch(() => {});
+        const onAbort = () => {
+          audio.pause();
+          finish(aborted());
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+        detachAbort = () => signal?.removeEventListener("abort", onAbort);
+        try {
+          await Promise.race([Promise.resolve(audio.play()), new Promise((_resolve, reject) => {
+            rejectStart = reject;
+          })]);
+          if (run !== generation) throw aborted();
+          rejectStart = void 0;
+          playing = true;
+          fadeStarted = performance.now();
+          refreshFade();
+        } catch (cause) {
+          if (run !== generation) throw cause;
+          audio.pause();
+          const error = playbackError(cause);
+          finish(error);
+          throw error;
+        }
+      },
+      pause() {
+        requireActive();
+        audio.pause();
+        finish();
+      },
+      stop(stopOptions = {}) {
+        requireActive();
+        if (!stopOptions || typeof stopOptions !== "object" || Array.isArray(stopOptions) || Object.keys(stopOptions).some((key) => !["fadeOut", "signal"].includes(key))) throw new TypeError("Invalid audio stop options.");
+        const seconds = fadeSeconds(stopOptions.fadeOut === void 0 ? activeFadeOut : stopOptions.fadeOut, "fadeOut");
+        const signal = stopOptions.signal;
+        if (signal?.aborted) throw aborted();
+        if (seconds === 0 || audio.paused || !playing) {
+          stopNow();
+          return;
+        }
+        const previous = stopping;
+        stopping = void 0;
+        previous?.detach();
+        previous?.reject(aborted());
+        return new Promise((resolve, reject) => {
+          const onAbort = () => {
+            const current = stopping;
+            stopping = void 0;
+            current?.detach();
+            stopNow();
+            reject(aborted());
+          };
+          stopping = {
+            started: performance.now(),
+            seconds,
+            from: envelope,
+            resolve,
+            reject,
+            detach: () => signal?.removeEventListener("abort", onAbort)
+          };
+          signal?.addEventListener("abort", onAbort, { once: true });
+          if (signal?.aborted) onAbort();
+          else refreshFade();
+        });
+      },
+      async seek(seconds, signal) {
+        requireActive();
+        if (!Number.isFinite(seconds) || seconds < 0) throw new TypeError("Audio seek time must be non-negative.");
+        if (signal?.aborted) throw aborted();
+        if (audio.readyState < 1) await new Promise((resolve, reject) => {
+          const complete = (error) => {
+            clearTimeout(timer);
+            audio.removeEventListener("loadedmetadata", ready);
+            signal?.removeEventListener("abort", cancel);
+            pendingMetadata.delete(complete);
+            if (error === void 0) resolve();
+            else reject(error);
+          };
+          const ready = () => complete();
+          const cancel = () => complete(aborted());
+          const timer = setTimeout(() => complete(/* @__PURE__ */ new Error("Audio metadata did not become ready.")), 1e4);
+          pendingMetadata.add(complete);
+          audio.addEventListener("loadedmetadata", ready, { once: true });
+          signal?.addEventListener("abort", cancel, { once: true });
+          if (signal?.aborted) cancel();
+          else if (audio.readyState >= 1) ready();
+        });
+        requireActive();
+        if (signal?.aborted) throw aborted();
+        if (Number.isFinite(audio.duration) && seconds > audio.duration) throw new RangeError("Audio seek exceeds its duration.");
+        audio.currentTime = seconds;
+        refreshFade();
+      },
+      setGain(value) {
+        const normalized = normalizeAudioVoiceGain(value);
+        requireActive();
+        gain = normalized;
+        writeVolume();
+      },
+      setMuted(value) {
+        if (typeof value !== "boolean") throw new TypeError("Audio muted must be a boolean.");
+        requireActive();
+        audio.muted = value;
+      },
+      setPlaybackRate(value) {
+        const normalized = rate(value);
+        requireActive();
+        audio.playbackRate = normalized;
+        refreshFade();
+      },
+      dispose() {
+        if (disposed) return;
+        disposed = true;
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+        } catch {}
+        finish();
+        for (const complete of pendingMetadata) complete(aborted());
+        audio.removeEventListener("ended", onEnded);
+        audio.removeEventListener("error", onError);
+        for (const event of [
+          "durationchange",
+          "ratechange",
+          "seeked"
+        ]) audio.removeEventListener(event, refreshFade);
+        try {
+          audio.removeAttribute?.("src");
+          audio.load?.();
+        } finally {
+          release();
+        }
+      }
+    });
+  }
   var block_definitions_default = {
     extensionName: "Asset Cache",
     blocks: [
@@ -1381,13 +1709,6 @@
     return JSON.stringify(normalized || "(empty)");
   }
   //#endregion
-  //#region src/audio-voice.ts
-  function normalizeAudioVoiceGain(value, label = "Audio voice gain") {
-    const gain = value === void 0 ? 1 : value;
-    if (typeof gain !== "number" || !Number.isFinite(gain) || gain < 0 || gain > 1) throw new TypeError(`${label} must be a finite number from 0 to 1.`);
-    return gain;
-  }
-  //#endregion
   //#region src/named-body-provider.ts
   var NAMED_ASSET_BODY_NAMESPACE = "asset";
   function requireNamedAssetBodyReference(value) {
@@ -1875,6 +2196,7 @@
       _defineProperty(this, "textAssets", /* @__PURE__ */ new Map());
       _defineProperty(this, "assetRegistry", /* @__PURE__ */ new Map());
       _defineProperty(this, "displayedAssets", /* @__PURE__ */ new Map());
+      _defineProperty(this, "explicitAudio", /* @__PURE__ */ new WeakSet());
       _defineProperty(this, "playingAudio", /* @__PURE__ */ new Map());
       _defineProperty(this, "audioVoiceStops", /* @__PURE__ */ new WeakMap());
       _defineProperty(this, "registrationVersions", /* @__PURE__ */ new Map());
@@ -2246,6 +2568,45 @@
       await playback.started;
       return playback.voice;
     }
+    async createAudioPlayback(source, options = {}, onDispose = () => {}) {
+      validateAudioPlaybackOptions(options);
+      if (!source || typeof source !== "object" || Array.isArray(source) || Object.keys(source).length !== 1 || Object.hasOwn(source, "asset") === Object.hasOwn(source, "url")) throw new TypeError("Audio requires exactly one asset or URL.");
+      if (Object.hasOwn(source, "url")) {
+        if (typeof source.url !== "string" || !/^https?:\/\/[^\s]+$/u.test(source.url)) throw new TypeError("Audio URL must use HTTP(S) without credentials.");
+        const url = new URL(source.url);
+        if (!url.hostname || url.username || url.password) throw new TypeError("Invalid audio URL.");
+        return this.prepareBrowserAudio("", source.url, options, onDispose, "createAudioPlayback");
+      }
+      const name = normalizeName(source.asset);
+      const version = this.registrationVersions.get(name);
+      const resource = await this.resolveAudioBytes(name);
+      if (!this.assetRegistry.has(name) || version !== this.registrationVersions.get(name)) throw new Error("Audio source was released or replaced while preparing.");
+      const bytes = resource.bytes instanceof Uint8Array ? new Uint8Array(resource.bytes).buffer : resource.bytes;
+      const url = URL.createObjectURL(new Blob([bytes], { type: resource.mimeType }));
+      return this.prepareBrowserAudio(name, url, options, () => {
+        URL.revokeObjectURL(url);
+        onDispose();
+      }, "createAudioPlayback");
+    }
+    prepareBrowserAudio(name, url, options, release, operation) {
+      let audio;
+      let controller;
+      try {
+        audio = new Audio(url);
+        controller = createBrowserAudioPlayback(audio, options, () => {
+          this.playingAudio.delete(audio);
+          this.audioVoiceStops.delete(audio);
+          release();
+        }, (cause) => this.playbackError(name, cause, operation));
+      } catch (cause) {
+        release();
+        throw this.playbackError(name, cause, operation);
+      }
+      if (operation === "createAudioPlayback") this.explicitAudio.add(audio);
+      this.playingAudio.set(audio, name);
+      this.audioVoiceStops.set(audio, () => controller.dispose());
+      return controller;
+    }
     stopSound(args) {
       const name = normalizeName(args.NAME);
       const kind = this.assetRegistry.get(name);
@@ -2255,12 +2616,12 @@
         if (!asset) throw this.assetNotRegistered("stopSound", name);
         asset.mimeType = normalizeMimeType(asset.mimeType, asset.url || name);
         if (!asset.mimeType.startsWith("audio/")) throw this.assetTypeMismatch("stopSound", name, "audio", `external/${this.externalMediaKind(asset)}`);
-        for (const [audio, assetName] of [...this.playingAudio]) if (assetName === name) this.stopExternalAudio(audio);
+        for (const [audio, assetName] of [...this.playingAudio]) if (assetName === name && !this.explicitAudio.has(audio)) this.stopExternalAudio(audio);
         return;
       }
       if (kind === "sound") {
         const { target, sound, soundBank } = this.resolveSoundReference(name);
-        for (const [audio, assetName] of [...this.playingAudio]) if (assetName === name) this.stopExternalAudio(audio);
+        for (const [audio, assetName] of [...this.playingAudio]) if (assetName === name && !this.explicitAudio.has(audio)) this.stopExternalAudio(audio);
         soundBank.stop(target, sound.soundId);
         return;
       }
@@ -2508,6 +2869,7 @@
     }
     unregisterAsset(name) {
       this.cancelRegistrations(name);
+      for (const [audio, assetName] of [...this.playingAudio]) if (assetName === name) this.stopExternalAudio(audio);
       this.invalidateDOMImageResources(name);
       const kind = this.assetRegistry.get(name);
       if (!kind) return;
@@ -3323,73 +3685,33 @@
     }
     startBrowserAudioVoice(name, bytes, mimeType, initialGain, operation) {
       const blobBytes = bytes instanceof Uint8Array ? new Uint8Array(bytes).buffer : bytes;
-      const objectUrl = URL.createObjectURL(new Blob([blobBytes], { type: mimeType }));
-      let audio;
-      try {
-        audio = new Audio(objectUrl);
-        audio.volume = initialGain;
-      } catch (error) {
-        URL.revokeObjectURL(objectUrl);
-        throw this.playbackError(name, error, operation);
-      }
+      const url = URL.createObjectURL(new Blob([blobBytes], { type: mimeType }));
+      const controller = this.prepareBrowserAudio(name, url, { gain: initialGain }, () => URL.revokeObjectURL(url), operation);
       let active = true;
-      let resolveEnded;
-      let rejectEnded;
-      const ended = new Promise((resolve, reject) => {
-        resolveEnded = resolve;
-        rejectEnded = reject;
-      });
-      ended.catch(() => {});
-      const cleanup = (error) => {
-        if (!active) return;
-        active = false;
-        audio.removeEventListener("ended", handleEnded);
-        audio.removeEventListener("error", handleError);
-        this.playingAudio.delete(audio);
-        this.audioVoiceStops.delete(audio);
-        URL.revokeObjectURL(objectUrl);
-        if (error === void 0) resolveEnded();
-        else rejectEnded(error);
-      };
-      const handleEnded = () => cleanup();
-      const handleError = () => cleanup(operation === "createAudioVoice" ? this.playbackError(name, /* @__PURE__ */ new Error("The browser audio element reported a playback error."), operation) : void 0);
       const stop = () => {
         if (!active) return;
-        try {
-          audio.pause();
-          audio.currentTime = 0;
-        } catch {}
-        cleanup();
+        active = false;
+        controller.dispose();
       };
-      const voice = Object.freeze({
-        ended,
-        setGain(value) {
-          const gain = normalizeAudioVoiceGain(value);
-          if (active) audio.volume = gain;
-        },
-        stop
+      const started = controller.play();
+      const ended = controller.ended.then(() => stop(), (error) => {
+        stop();
+        if (operation === "createAudioVoice") throw error;
       });
-      audio.addEventListener("ended", handleEnded, { once: true });
-      audio.addEventListener("error", handleError, { once: true });
-      this.playingAudio.set(audio, name);
-      this.audioVoiceStops.set(audio, stop);
-      let playResult;
-      try {
-        playResult = audio.play();
-      } catch (error) {
-        const playbackError = this.playbackError(name, error, operation);
-        cleanup(playbackError);
-        return {
-          voice,
-          started: Promise.reject(playbackError)
-        };
-      }
+      ended.catch(() => {});
       return {
-        voice,
-        started: Promise.resolve(playResult).catch((error) => {
-          const playbackError = this.playbackError(name, error, operation);
-          cleanup(playbackError);
-          throw playbackError;
+        voice: Object.freeze({
+          ended,
+          setGain(value) {
+            const gain = normalizeAudioVoiceGain(value);
+            if (active) controller.setGain(gain);
+          },
+          stop
+        }),
+        started: started.catch((error) => {
+          const legacyStop = operation === "playSound" && !active && error instanceof Error && error.name === "AbortError";
+          stop();
+          if (!legacyStop) throw error;
         })
       };
     }

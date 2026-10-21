@@ -6,6 +6,7 @@ import {
   createVerifiedRemoteCacheDatabaseName,
   type AssetManagerComposition,
   type AssetManagerAudioVoice,
+  type AssetManagerAudioPlayback,
   type BinaryBundlePutInput,
   type BinaryBundleBackendStatus,
   type BinaryBundleStoreStats,
@@ -55,6 +56,17 @@ void audioVoice.then((voice) => {
   voice.setGain(0.5);
   voice.stop();
   return voice.ended;
+});
+const audioPlayback: Promise<AssetManagerAudioPlayback> = composition.createAudioPlayback({asset: 'OpeningMusic'}, {gain: 0.5, muted: false, playbackRate: 1.25, fadeIn: 0.5, fadeOut: 1});
+void audioPlayback.then(async (playback) => {
+  await playback.play({restart: true, loop: false});
+  playback.pause();
+  await playback.seek(1);
+  playback.setGain(0.3);
+  playback.setMuted(true);
+  playback.setPlaybackRate(2);
+  await playback.stop({fadeOut: 0.25});
+  playback.dispose();
 });
 const projectLocator: ProjectAssetLocator = {
   kind: 'costume',

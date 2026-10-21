@@ -1,3 +1,4 @@
+import { type AssetManagerAudioSource, type AssetManagerAudioPlayback, type AssetManagerAudioPlaybackOptions } from './audio-playback.js';
 import { AssetManagerError } from './asset-cache-error.js';
 import { type AssetManagerFeatureFlags } from './feature-flags.js';
 import { type DOMImageResource } from './dom-image-resource.js';
@@ -91,6 +92,7 @@ export declare class AssetManagerExtension {
     private readonly textAssets;
     private readonly assetRegistry;
     private readonly displayedAssets;
+    private readonly explicitAudio;
     private readonly playingAudio;
     private readonly audioVoiceStops;
     private readonly registrationVersions;
@@ -172,6 +174,8 @@ export declare class AssetManagerExtension {
     playSound(args: BlockArgs): Promise<void>;
     playSoundUntilDone(args: BlockArgs): Promise<void>;
     createAudioVoice(value: unknown, options?: AssetManagerAudioVoiceOptions): Promise<AssetManagerAudioVoice>;
+    createAudioPlayback(source: AssetManagerAudioSource, options?: AssetManagerAudioPlaybackOptions, onDispose?: () => void): Promise<AssetManagerAudioPlayback>;
+    private prepareBrowserAudio;
     stopSound(args: BlockArgs): void;
     stopAllSounds(): void;
     getAssetMimeType(args: BlockArgs): string;
