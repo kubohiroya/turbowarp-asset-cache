@@ -2956,7 +2956,12 @@ export class AssetManagerExtension {
       },
       stop
     });
-    return {voice, started: started.catch((error: unknown) => { stop(); throw error; })};
+    return {voice, started: started.catch((error: unknown) => {
+      // Legacy stop completes sound-until-done even while native play is starting.
+      const legacyStop = operation === 'playSound' && !active && error instanceof Error && error.name === 'AbortError';
+      stop();
+      if (!legacyStop) throw error;
+    })};
   }
 
   private async playExternalSound(name: string, waitUntilDone: boolean): Promise<void> {

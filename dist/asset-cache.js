@@ -3709,8 +3709,9 @@
           stop
         }),
         started: started.catch((error) => {
+          const legacyStop = operation === "playSound" && !active && error instanceof Error && error.name === "AbortError";
           stop();
-          throw error;
+          if (!legacyStop) throw error;
         })
       };
     }
