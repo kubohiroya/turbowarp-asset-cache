@@ -489,7 +489,9 @@ describe('Asset Cache composition API', () => {
       play = vi.fn(async () => {});
       removeAttribute = vi.fn();
       load = vi.fn();
-      constructor(src: string) { super(); urls.push(src); instances.push(this); }
+      crossOrigin = '';
+      set src(value: string) { expect(this.crossOrigin).toBe('anonymous'); urls.push(value); }
+      constructor() { super(); instances.push(this); }
     });
     const firstOwner = createAssetManagerComposition();
     const secondOwner = createAssetManagerComposition();

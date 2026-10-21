@@ -1,4 +1,12 @@
-import {normalizeAudioVoiceGain} from './audio-voice.js';
+import {createAudioAmplifier} from './audio-output.js';
+
+function playbackGain(value: unknown): number {
+  const gain = value === undefined ? 1 : value;
+  if (typeof gain !== 'number' || !Number.isFinite(gain) || gain < 0) {
+    throw new TypeError('Audio gain must be a finite non-negative number.');
+  }
+  return gain;
+}
 
 export type AssetManagerAudioSource = Readonly<{asset: unknown; url?: never}> |
   Readonly<{url: string; asset?: never}>;
@@ -20,6 +28,7 @@ export interface AssetManagerAudioPlaybackOptions extends AssetManagerAudioFadeO
 }
 
 export interface AssetManagerAudioPlayOptions extends AssetManagerAudioFadeOptions {
+  readonly gain?: number;
   readonly restart?: boolean;
   readonly loop?: boolean;
   readonly signal?: AbortSignal;
@@ -37,7 +46,7 @@ export interface AssetManagerAudioPlayback {
   pause(): void;
   stop(options?: AssetManagerAudioStopOptions): void | Promise<void>;
   seek(seconds: number, signal?: AbortSignal): Promise<void>;
-  setGain(value: number): void;
+  setGain(value: number): void | Promise<void>;
   setMuted(value: boolean): void;
   setPlaybackRate(value: number): void;
   dispose(): void;
@@ -55,7 +64,7 @@ export function validateAudioPlaybackOptions(options: AssetManagerAudioPlaybackO
       Object.keys(options).some((key) => !['gain', 'muted', 'playbackRate', 'fadeIn', 'fadeOut'].includes(key))) {
     throw new TypeError('Invalid audio playback options.');
   }
-  normalizeAudioVoiceGain(options.gain);
+  playbackGain(options.gain);
   if (options.muted !== undefined && typeof options.muted !== 'boolean') {
     throw new TypeError('Audio muted must be a boolean.');
   }
@@ -86,8 +95,8 @@ export function createBrowserAudioPlayback(
   playbackError: (cause: unknown) => Error
 ): AssetManagerAudioPlayback {
   validateAudioPlaybackOptions(options);
-  let gain = normalizeAudioVoiceGain(options.gain);
-  audio.volume = gain;
+  let gain = playbackGain(options.gain);
+  audio.volume = Math.min(1, gain);
   audio.muted = options.muted ?? false;
   audio.playbackRate = options.playbackRate ?? 1;
   audio.loop = false;
@@ -107,6 +116,8 @@ export function createBrowserAudioPlayback(
     reject: (error: unknown) => void;
     detach: () => void;
   } | undefined;
+  let amplifier: ReturnType<typeof createAudioAmplifier> | undefined;
+  const pendingGain = new Set<(error: unknown) => void>();
   let disposed = false;
   let generation = 0;
   let ended = Promise.resolve();
@@ -124,6 +135,8 @@ export function createBrowserAudioPlayback(
   };
   const finish = (error?: unknown) => {
     playing = false;
+    for (const reject of pendingGain) reject(error ?? aborted());
+    pendingGain.clear();
     clearFadeTimer();
     const previousStop = stopping;
     stopping = undefined;
@@ -137,7 +150,14 @@ export function createBrowserAudioPlayback(
     settle?.(error);
     settle = undefined;
   };
-  const writeVolume = () => { audio.volume = gain * envelope; };
+  const writeVolume = () => {
+    audio.volume = Math.min(1, gain) * envelope;
+    amplifier?.setGain(gain);
+  };
+  const prepareAmplifier = () => {
+    if (!amplifier && gain > 1) amplifier = createAudioAmplifier(audio);
+    writeVolume();
+  };
   const stopNow = () => {
     const completed = stopping;
     stopping = undefined;
@@ -202,17 +222,19 @@ export function createBrowserAudioPlayback(
     async play(playOptions = {}) {
       requireActive();
       if (!playOptions || typeof playOptions !== 'object' || Array.isArray(playOptions) ||
-          Object.keys(playOptions).some((key) => !['restart', 'loop', 'signal', 'fadeIn', 'fadeOut'].includes(key)) ||
+          Object.keys(playOptions).some((key) => !['restart', 'loop', 'signal', 'fadeIn', 'fadeOut', 'gain'].includes(key)) ||
           (playOptions.restart !== undefined && typeof playOptions.restart !== 'boolean') ||
           (playOptions.loop !== undefined && typeof playOptions.loop !== 'boolean')) {
         throw new TypeError('Invalid audio play options.');
       }
       const fadeIn = fadeSeconds(playOptions.fadeIn === undefined ? defaultFadeIn : playOptions.fadeIn, 'fadeIn');
       const fadeOut = fadeSeconds(playOptions.fadeOut === undefined ? defaultFadeOut : playOptions.fadeOut, 'fadeOut');
+      const nextGain = playOptions.gain === undefined ? gain : playbackGain(playOptions.gain);
       const signal = playOptions.signal;
       if (signal?.aborted) throw aborted();
       finish();
       const run = generation;
+      gain = nextGain;
       if (playOptions.restart) audio.currentTime = 0;
       audio.loop = playOptions.loop ?? audio.loop;
       activeFadeIn = fadeIn;
@@ -230,7 +252,10 @@ export function createBrowserAudioPlayback(
       signal?.addEventListener('abort', onAbort, {once: true});
       detachAbort = () => signal?.removeEventListener('abort', onAbort);
       try {
-        await Promise.race([Promise.resolve(audio.play()), new Promise<never>((_resolve, reject) => { rejectStart = reject; })]);
+        prepareAmplifier();
+        const started = audio.play();
+        const ready = amplifier ? Promise.all([started, amplifier.resume()]) : Promise.resolve(started);
+        await Promise.race([ready, new Promise<never>((_resolve, reject) => { rejectStart = reject; })]);
         if (run !== generation) throw aborted();
         rejectStart = undefined;
         playing = true;
@@ -309,10 +334,31 @@ export function createBrowserAudioPlayback(
       refreshFade();
     },
     setGain(value) {
-      const normalized = normalizeAudioVoiceGain(value);
+      const normalized = playbackGain(value);
       requireActive();
+      const previous = gain;
       gain = normalized;
-      writeVolume();
+      try {
+        if (playing) prepareAmplifier();
+        else writeVolume();
+      } catch (error) {
+        gain = previous;
+        writeVolume();
+        throw playbackError(error);
+      }
+      if (playing && amplifier) {
+        const run = generation;
+        let rejectResume!: (error: unknown) => void;
+        const cancelled = new Promise<never>((_resolve, reject) => { rejectResume = reject; });
+        pendingGain.add(rejectResume);
+        return Promise.race([amplifier.resume(), cancelled]).catch((cause) => {
+          if (run !== generation) throw cause;
+          audio.pause();
+          const error = playbackError(cause);
+          finish(error);
+          throw error;
+        }).finally(() => pendingGain.delete(rejectResume));
+      }
     },
     setMuted(value) {
       if (typeof value !== 'boolean') throw new TypeError('Audio muted must be a boolean.');
@@ -343,7 +389,7 @@ export function createBrowserAudioPlayback(
         audio.removeAttribute?.('src');
         audio.load?.();
       } finally {
-        release();
+        try { amplifier?.dispose(); } finally { release(); }
       }
     }
   };

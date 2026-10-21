@@ -1,11 +1,56 @@
-//#region src/audio-voice.ts
-function normalizeAudioVoiceGain(value, label = "Audio voice gain") {
-	const gain = value === void 0 ? 1 : value;
-	if (typeof gain !== "number" || !Number.isFinite(gain) || gain < 0 || gain > 1) throw new TypeError(`${label} must be a finite number from 0 to 1.`);
-	return gain;
+//#region src/audio-output.ts
+/** Media volume handles attenuation and fades; this shared graph adds amplification. */
+var shared;
+var maximumFloat = 34028234663852886e22;
+function createAudioAmplifier(audio) {
+	if (typeof globalThis.AudioContext !== "function") throw new Error("Audio amplification requires Web Audio support.");
+	if (!shared || shared.context.state === "closed") shared = {
+		context: new AudioContext(),
+		users: 0
+	};
+	const owner = shared;
+	owner.users++;
+	let source;
+	let gain;
+	let released = false;
+	const dispose = () => {
+		if (released) return;
+		released = true;
+		source?.disconnect();
+		gain?.disconnect();
+		owner.users--;
+		if (owner.users === 0) {
+			if (shared === owner) shared = void 0;
+			owner.context.close().catch(() => {});
+		}
+	};
+	try {
+		source = owner.context.createMediaElementSource(audio);
+		gain = owner.context.createGain();
+		source.connect(gain);
+		gain.connect(owner.context.destination);
+	} catch (error) {
+		dispose();
+		throw error;
+	}
+	const node = gain;
+	return {
+		setGain(value) {
+			node.gain.value = Math.min(maximumFloat, Math.max(1, value));
+		},
+		resume() {
+			return owner.context.state === "running" ? Promise.resolve() : owner.context.resume();
+		},
+		dispose
+	};
 }
 //#endregion
 //#region src/audio-playback.ts
+function playbackGain(value) {
+	const gain = value === void 0 ? 1 : value;
+	if (typeof gain !== "number" || !Number.isFinite(gain) || gain < 0) throw new TypeError("Audio gain must be a finite non-negative number.");
+	return gain;
+}
 function rate(value) {
 	if (typeof value !== "number" || !Number.isFinite(value) || value < .25 || value > 4) throw new TypeError("Audio playback rate must be from 0.25 to 4.");
 	return value;
@@ -18,7 +63,7 @@ function validateAudioPlaybackOptions(options) {
 		"fadeIn",
 		"fadeOut"
 	].includes(key))) throw new TypeError("Invalid audio playback options.");
-	normalizeAudioVoiceGain(options.gain);
+	playbackGain(options.gain);
 	if (options.muted !== void 0 && typeof options.muted !== "boolean") throw new TypeError("Audio muted must be a boolean.");
 	rate(options.playbackRate ?? 1);
 	fadeSeconds(options.fadeIn, "fadeIn");
@@ -37,8 +82,8 @@ function aborted() {
 /** One reusable native element; the caller owns source resolution and resource release. */
 function createBrowserAudioPlayback(audio, options, release, playbackError) {
 	validateAudioPlaybackOptions(options);
-	let gain = normalizeAudioVoiceGain(options.gain);
-	audio.volume = gain;
+	let gain = playbackGain(options.gain);
+	audio.volume = Math.min(1, gain);
 	audio.muted = options.muted ?? false;
 	audio.playbackRate = options.playbackRate ?? 1;
 	audio.loop = false;
@@ -51,6 +96,8 @@ function createBrowserAudioPlayback(audio, options, release, playbackError) {
 	let playing = false;
 	let fadeTimer;
 	let stopping;
+	let amplifier;
+	const pendingGain = /* @__PURE__ */ new Set();
 	let disposed = false;
 	let generation = 0;
 	let ended = Promise.resolve();
@@ -67,6 +114,8 @@ function createBrowserAudioPlayback(audio, options, release, playbackError) {
 	};
 	const finish = (error) => {
 		playing = false;
+		for (const reject of pendingGain) reject(error ?? aborted());
+		pendingGain.clear();
 		clearFadeTimer();
 		const previousStop = stopping;
 		stopping = void 0;
@@ -81,7 +130,12 @@ function createBrowserAudioPlayback(audio, options, release, playbackError) {
 		settle = void 0;
 	};
 	const writeVolume = () => {
-		audio.volume = gain * envelope;
+		audio.volume = Math.min(1, gain) * envelope;
+		amplifier?.setGain(gain);
+	};
+	const prepareAmplifier = () => {
+		if (!amplifier && gain > 1) amplifier = createAudioAmplifier(audio);
+		writeVolume();
 	};
 	const stopNow = () => {
 		const completed = stopping;
@@ -175,14 +229,17 @@ function createBrowserAudioPlayback(audio, options, release, playbackError) {
 				"loop",
 				"signal",
 				"fadeIn",
-				"fadeOut"
+				"fadeOut",
+				"gain"
 			].includes(key)) || playOptions.restart !== void 0 && typeof playOptions.restart !== "boolean" || playOptions.loop !== void 0 && typeof playOptions.loop !== "boolean") throw new TypeError("Invalid audio play options.");
 			const fadeIn = fadeSeconds(playOptions.fadeIn === void 0 ? defaultFadeIn : playOptions.fadeIn, "fadeIn");
 			const fadeOut = fadeSeconds(playOptions.fadeOut === void 0 ? defaultFadeOut : playOptions.fadeOut, "fadeOut");
+			const nextGain = playOptions.gain === void 0 ? gain : playbackGain(playOptions.gain);
 			const signal = playOptions.signal;
 			if (signal?.aborted) throw aborted();
 			finish();
 			const run = generation;
+			gain = nextGain;
 			if (playOptions.restart) audio.currentTime = 0;
 			audio.loop = playOptions.loop ?? audio.loop;
 			activeFadeIn = fadeIn;
@@ -200,7 +257,10 @@ function createBrowserAudioPlayback(audio, options, release, playbackError) {
 			signal?.addEventListener("abort", onAbort, { once: true });
 			detachAbort = () => signal?.removeEventListener("abort", onAbort);
 			try {
-				await Promise.race([Promise.resolve(audio.play()), new Promise((_resolve, reject) => {
+				prepareAmplifier();
+				const started = audio.play();
+				const ready = amplifier ? Promise.all([started, amplifier.resume()]) : Promise.resolve(started);
+				await Promise.race([ready, new Promise((_resolve, reject) => {
 					rejectStart = reject;
 				})]);
 				if (run !== generation) throw aborted();
@@ -285,10 +345,33 @@ function createBrowserAudioPlayback(audio, options, release, playbackError) {
 			refreshFade();
 		},
 		setGain(value) {
-			const normalized = normalizeAudioVoiceGain(value);
+			const normalized = playbackGain(value);
 			requireActive();
+			const previous = gain;
 			gain = normalized;
-			writeVolume();
+			try {
+				if (playing) prepareAmplifier();
+				else writeVolume();
+			} catch (error) {
+				gain = previous;
+				writeVolume();
+				throw playbackError(error);
+			}
+			if (playing && amplifier) {
+				const run = generation;
+				let rejectResume;
+				const cancelled = new Promise((_resolve, reject) => {
+					rejectResume = reject;
+				});
+				pendingGain.add(rejectResume);
+				return Promise.race([amplifier.resume(), cancelled]).catch((cause) => {
+					if (run !== generation) throw cause;
+					audio.pause();
+					const error = playbackError(cause);
+					finish(error);
+					throw error;
+				}).finally(() => pendingGain.delete(rejectResume));
+			}
 		},
 		setMuted(value) {
 			if (typeof value !== "boolean") throw new TypeError("Audio muted must be a boolean.");
@@ -321,7 +404,11 @@ function createBrowserAudioPlayback(audio, options, release, playbackError) {
 				audio.removeAttribute?.("src");
 				audio.load?.();
 			} finally {
-				release();
+				try {
+					amplifier?.dispose();
+				} finally {
+					release();
+				}
 			}
 		}
 	});
@@ -1662,6 +1749,13 @@ function safeLabel(value) {
 	return JSON.stringify(normalized || "(empty)");
 }
 //#endregion
+//#region src/audio-voice.ts
+function normalizeAudioVoiceGain(value, label = "Audio voice gain") {
+	const gain = value === void 0 ? 1 : value;
+	if (typeof gain !== "number" || !Number.isFinite(gain) || gain < 0 || gain > 1) throw new TypeError(`${label} must be a finite number from 0 to 1.`);
+	return gain;
+}
+//#endregion
 //#region src/named-body-provider.ts
 var NAMED_ASSET_BODY_NAMESPACE = "asset";
 var NamedAssetBodyError = NamedDataError;
@@ -2546,7 +2640,12 @@ var AssetManagerExtension = class {
 		let audio;
 		let controller;
 		try {
-			audio = new Audio(url);
+			const directAudio = operation === "createAudioPlayback" && /^https?:/u.test(url);
+			audio = directAudio ? new Audio() : new Audio(url);
+			if (directAudio) {
+				audio.crossOrigin = "anonymous";
+				audio.src = url;
+			}
 			controller = createBrowserAudioPlayback(audio, options, () => {
 				this.playingAudio.delete(audio);
 				this.audioVoiceStops.delete(audio);

@@ -2,15 +2,15 @@
 
 追跡: [Issue #6](https://github.com/kubohiroya/turbowarp-asset-cache/issues/6)。開発中の追加APIで、既存公開版に同名APIがあることを示す文書ではありません。
 
-`createAudioPlayback({asset: 'Music'}, {gain: 0.7, muted: false, playbackRate: 1, fadeIn: 0.5, fadeOut: 1.5})` は、停止状態の独立したinstanceを返します。`asset` と `url` のどちらか一つが必須です。直接URLは認証情報を含まないHTTP(S)に限定します。準備だけではnative `play()` を呼びません。有効化フラグは不要です。
+`createAudioPlayback({asset: 'Music'}, {gain: 0.7, muted: false, playbackRate: 1, fadeIn: 0.5, fadeOut: 1.5})` は、停止状態の独立したinstanceを返します。`asset` と `url` のどちらか一つが必須です。直接URLは認証情報を含まないHTTP(S)に限定し、anonymous CORSで読み込みます。別originのサーバーにはAccess-Control-Allow-Originが必要です。これは後からsetGainで増幅する場合も必要となる[Web AudioのCORS仕様](https://webaudio.github.io/web-audio-api/#MediaElementAudioSourceNode-security)に従います。準備だけではnative `play()` を呼びません。有効化フラグは不要です。
 
 ```js
 const playback = await assets.createAudioPlayback({asset: 'Music'}, {gain: 0.7, fadeIn: 0.5, fadeOut: 1.5});
 try {
-  await playback.play({restart: true, loop: true, signal});
+  await playback.play({restart: true, loop: true, gain: 1.5, fadeIn: 0.5, fadeOut: 1.5, signal});
   playback.pause();
   await playback.seek(1.5, signal);
-  playback.setGain(0.35);
+  await playback.setGain(2);
   playback.setMuted(false);
   playback.setPlaybackRate(1.5);
   await playback.play({signal});
@@ -24,8 +24,8 @@ try {
 - `ended` は現在の再生の終了待ちPromiseです。`play` ごとに更新されるため、`await playback.play(); await playback.ended;` の順で使います。自然終了・pause・stop・置換・disposeで待機を完了し、再生失敗やAbortSignalによる中断はrejectします。
 - `pause` は位置を保持します。`stop({fadeOut, signal})` は再生中ならフェードアウト完了まで待ち、ループを解除して先頭へ戻します。0秒・一時停止中・未再生なら即時停止です。いずれもinstanceと素材を保持し、再利用できます。フェードを使うstopはPromiseをawaitしてください。
 - `seek` は必要ならmetadataを最大10秒待ちます。負の秒、有限でない秒、長さを超える秒を拒否します。待機中のabort/disposeでもlistenerとtimerを回収します。
-- gainは0〜1、mutedは真偽値、playbackRateは0.25〜4です。音量などは同じ素材の別instanceへ影響しません。
-- `dispose` は冪等です。sourceを外してnative音声を解放し、所有するObject URLを一度だけrevokeします。直接HTTP(S) URLをrevokeすることはありません。
+- gainは0以上の有限数（既定1）、mutedは真偽値、playbackRateは0.25〜4です。音量などは同じ素材の別instanceへ影響しません。gain=0で無音、1で原音、2で2倍です。playのgain省略時は現在値を保持します。100%超の増幅には共有AudioContextとinstanceごとのGainNodeを使い、native volumeは減衰とフェードに使います。極端なgainはWeb Audioのfloat表現上限内で出力します。増幅後のsetGainはAudioContextの再開を待つ場合があるためawaitしてください。
+- `dispose` は冪等です。sourceを外してnative音声と増幅nodeを解放し、最後の増幅instanceでは共有AudioContextもcloseします。所有するObject URLを一度だけrevokeします。直接HTTP(S) URLをrevokeすることはありません。
 
 `createAudioVoice` と外部ファイルの `playSound` も同じnative controllerへ委譲します。voiceの `ended` / `setGain` / `stop` の契約は維持します。プロジェクト素材の旧 `playSound` はScratch SoundBankの互換adapterとして残します。
 
