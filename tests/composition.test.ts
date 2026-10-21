@@ -436,6 +436,88 @@ describe('Asset Cache composition API', () => {
     assets.releaseAll();
   });
 
+  it('prepares independent paused controllers and isolates them from legacy stopSound', async () => {
+    const instances: TestAudio[] = [];
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:prepared-${instances.length}`);
+    class TestAudio extends EventTarget {
+      currentTime = 0;
+      readyState = 1;
+      duration = 6;
+      paused = true;
+      volume = 1;
+      muted = false;
+      loop = false;
+      playbackRate = 1;
+      play = vi.fn(async () => { this.paused = false; });
+      pause = vi.fn(() => { this.paused = true; });
+      removeAttribute = vi.fn();
+      load = vi.fn();
+      constructor(_src: string) { super(); instances.push(this); }
+    }
+    vi.stubGlobal('Audio', TestAudio);
+    const assets = createAssetManagerComposition();
+    await assets.registerEmbeddedAsset({name: 'Music', sourceName: 'music.wav', mimeType: 'audio/wav', bytes: new Uint8Array([1])});
+    const first = await assets.createAudioPlayback({asset: 'Music'}, {gain: 0.3});
+    const second = await assets.createAudioPlayback({asset: 'Music'});
+    expect(instances[0]?.play).not.toHaveBeenCalled();
+    await first.play({loop: true});
+    await second.play();
+    const legacy = await assets.createAudioVoice('Music');
+    assets.stopSound('Music');
+    await legacy.ended;
+    expect(instances[0]?.pause).not.toHaveBeenCalled();
+    expect(instances[1]?.pause).not.toHaveBeenCalled();
+    first.stop();
+    await first.play();
+    first.dispose();
+    first.dispose();
+    expect(revoke).toHaveBeenCalledTimes(2);
+    assets.releaseAsset('Music');
+    expect(instances[1]?.load).toHaveBeenCalledOnce();
+    expect(revoke).toHaveBeenCalledTimes(3);
+  });
+
+  it('owns direct URL controllers through releaseAll and rejects unsafe or ambiguous sources', async () => {
+    const instances: Array<{pause: ReturnType<typeof vi.fn>}> = [];
+    const urls: string[] = [];
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    vi.stubGlobal('Audio', class extends EventTarget {
+      currentTime = 0;
+      volume = 1;
+      pause = vi.fn();
+      play = vi.fn(async () => {});
+      removeAttribute = vi.fn();
+      load = vi.fn();
+      constructor(src: string) { super(); urls.push(src); instances.push(this); }
+    });
+    const firstOwner = createAssetManagerComposition();
+    const secondOwner = createAssetManagerComposition();
+    await firstOwner.createAudioPlayback({url: 'https://example.com/music.mp3'});
+    const second = await secondOwner.createAudioPlayback({url: 'https://example.com/second.mp3'});
+    firstOwner.releaseAll();
+    expect(instances[0]?.pause).toHaveBeenCalledOnce();
+    expect(instances[1]?.pause).not.toHaveBeenCalled();
+    expect(urls).toEqual(['https://example.com/music.mp3', 'https://example.com/second.mp3']);
+    expect(revoke).not.toHaveBeenCalled();
+    second.dispose();
+    for (const source of [{url: 'javascript:alert(1)'}, {url: 'https://a:b@example.com/music.mp3'}, {asset: 'Music', url: 'https://example.com/a'}, {}]) {
+      await expect(firstOwner.createAudioPlayback(source as never)).rejects.toThrow();
+    }
+    expect(instances).toHaveLength(2);
+  });
+
+  it('releases bytes once if browser audio construction fails during preparation', async () => {
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:failed-preparation');
+    vi.stubGlobal('Audio', class { constructor() { throw new Error('No audio element'); } });
+    const assets = createAssetManagerComposition();
+    await assets.registerEmbeddedAsset({name: 'Music', sourceName: 'music.wav', mimeType: 'audio/wav', bytes: new Uint8Array([1])});
+    await expect(assets.createAudioPlayback({asset: 'Music'})).rejects.toMatchObject({code: 'PLAYBACK_FAILED', operation: 'createAudioPlayback'});
+    expect(revoke).toHaveBeenCalledOnce();
+    assets.releaseAll();
+  });
+
   it('keeps literal logical names and structured project locators byte-for-byte', async () => {
     const assets = createAssetManagerComposition();
     const backdropId = ' Backdrop ID/\u0001: ';

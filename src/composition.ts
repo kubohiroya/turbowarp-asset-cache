@@ -62,6 +62,8 @@ import {
 } from './audio-voice.js';
 
 export {type DOMImageResource} from './dom-image-resource.js';
+export type {AssetManagerAudioSource, AssetManagerAudioPlayback, AssetManagerAudioPlaybackOptions, AssetManagerAudioPlayOptions, AssetManagerAudioFadeOptions, AssetManagerAudioStopOptions} from './audio-playback.js';
+import type {AssetManagerAudioSource, AssetManagerAudioPlayback, AssetManagerAudioPlaybackOptions} from './audio-playback.js';
 
 export {
   NAMED_ASSET_BODY_NAMESPACE,
@@ -223,6 +225,7 @@ export interface AssetManagerComposition {
     name: unknown,
     options?: AssetManagerAudioVoiceOptions
   ): Promise<AssetManagerAudioVoice>;
+  createAudioPlayback(source: AssetManagerAudioSource, options?: AssetManagerAudioPlaybackOptions): Promise<AssetManagerAudioPlayback>;
   stopSound(name: unknown): void;
   stopAllSounds(): void;
   resolveVerifiedRemoteBinary(
@@ -461,6 +464,9 @@ export function createAssetManagerComposition(
       }
     });
   }
+
+  const audioPlaybacks = new Set<AssetManagerAudioPlayback>();
+  let audioGeneration = 0;
 
   function releaseAsset(name: unknown): void {
     const owned = ownedName(name);
@@ -718,7 +724,11 @@ export function createAssetManagerComposition(
     releaseAsset,
     releaseAll() {
       releaseAllDOMImageResources();
+      audioGeneration++;
       const errors: unknown[] = [];
+      for (const playback of audioPlaybacks) {
+        try { playback.dispose(); } catch (error) { errors.push(error); }
+      }
       for (const name of [...ownedNames.keys()].reverse()) {
         try {
           releaseAsset(name);
@@ -767,6 +777,19 @@ export function createAssetManagerComposition(
     },
     createAudioVoice(name, options) {
       return extension.createAudioVoice(ownedName(name)?.internal ?? name, options);
+    },
+    async createAudioPlayback(source, options) {
+      if (!source || typeof source !== 'object' || Array.isArray(source) || Object.keys(source).length !== 1) throw new TypeError('Invalid audio source.');
+      const generation = audioGeneration;
+      const normalizedSource = Object.hasOwn(source, 'asset') ? {asset: ownedName(source.asset)?.internal ?? source.asset} : source;
+      let playback: AssetManagerAudioPlayback | undefined;
+      playback = await extension.createAudioPlayback(normalizedSource, options, () => { if (playback) audioPlaybacks.delete(playback); });
+      if (generation !== audioGeneration) {
+        playback.dispose();
+        throw new Error('Audio composition was released while preparing.');
+      }
+      audioPlaybacks.add(playback);
+      return playback;
     },
     stopSound(name) {
       extension.stopSound({NAME: ownedName(name)?.internal ?? name});

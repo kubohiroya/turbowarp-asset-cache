@@ -1,3 +1,4 @@
+import {createBrowserAudioPlayback, validateAudioPlaybackOptions, type AssetManagerAudioSource, type AssetManagerAudioPlayback, type AssetManagerAudioPlaybackOptions} from './audio-playback.js';
 import definitions from './block-definitions.json' with {type: 'json'};
 import {fixedInputRegistration} from './fixed-input-editors.js';
 import {
@@ -826,6 +827,7 @@ export class AssetManagerExtension {
   private readonly textAssets = new Map<string, TextAssetReference>();
   private readonly assetRegistry = new Map<string, AssetKind>();
   private readonly displayedAssets = new Map<string, DisplayBinding>();
+  private readonly explicitAudio = new WeakSet<HTMLAudioElement>();
   private readonly playingAudio = new Map<HTMLAudioElement, string>();
   private readonly audioVoiceStops = new WeakMap<HTMLAudioElement, () => void>();
   private readonly registrationVersions = new Map<string, number>();
@@ -1302,6 +1304,62 @@ export class AssetManagerExtension {
     return playback.voice;
   }
 
+  async createAudioPlayback(
+    source: AssetManagerAudioSource,
+    options: AssetManagerAudioPlaybackOptions = {},
+    onDispose: () => void = () => {}
+  ): Promise<AssetManagerAudioPlayback> {
+    validateAudioPlaybackOptions(options);
+    if (!source || typeof source !== 'object' || Array.isArray(source) ||
+        Object.keys(source).length !== 1 ||
+        Object.hasOwn(source, 'asset') === Object.hasOwn(source, 'url')) {
+      throw new TypeError('Audio requires exactly one asset or URL.');
+    }
+    if (Object.hasOwn(source, 'url')) {
+      if (typeof source.url !== 'string' || !/^https?:\/\/[^\s]+$/u.test(source.url)) {
+        throw new TypeError('Audio URL must use HTTP(S) without credentials.');
+      }
+      const url = new URL(source.url);
+      if (!url.hostname || url.username || url.password) throw new TypeError('Invalid audio URL.');
+      return this.prepareBrowserAudio('', source.url, options, onDispose, 'createAudioPlayback');
+    }
+    const name = normalizeName(source.asset);
+    const version = this.registrationVersions.get(name);
+    const resource = await this.resolveAudioBytes(name);
+    if (!this.assetRegistry.has(name) || version !== this.registrationVersions.get(name)) {
+      throw new Error('Audio source was released or replaced while preparing.');
+    }
+    const bytes = resource.bytes instanceof Uint8Array ? new Uint8Array(resource.bytes).buffer : resource.bytes;
+    const url = URL.createObjectURL(new Blob([bytes], {type: resource.mimeType}));
+    return this.prepareBrowserAudio(name, url, options, () => { URL.revokeObjectURL(url); onDispose(); }, 'createAudioPlayback');
+  }
+
+  private prepareBrowserAudio(
+    name: string,
+    url: string,
+    options: AssetManagerAudioPlaybackOptions,
+    release: () => void,
+    operation: string
+  ): AssetManagerAudioPlayback {
+    let audio: HTMLAudioElement;
+    let controller: AssetManagerAudioPlayback;
+    try {
+      audio = new Audio(url);
+      controller = createBrowserAudioPlayback(audio, options, () => {
+        this.playingAudio.delete(audio);
+        this.audioVoiceStops.delete(audio);
+        release();
+      }, (cause) => this.playbackError(name, cause, operation));
+    } catch (cause) {
+      release();
+      throw this.playbackError(name, cause, operation);
+    }
+    if (operation === 'createAudioPlayback') this.explicitAudio.add(audio);
+    this.playingAudio.set(audio, name);
+    this.audioVoiceStops.set(audio, () => controller.dispose());
+    return controller;
+  }
+
   stopSound(args: BlockArgs): void {
     const name = normalizeName(args.NAME);
     const kind = this.assetRegistry.get(name);
@@ -1314,14 +1372,14 @@ export class AssetManagerExtension {
         throw this.assetTypeMismatch('stopSound', name, 'audio', `external/${this.externalMediaKind(asset)}`);
       }
       for (const [audio, assetName] of [...this.playingAudio]) {
-        if (assetName === name) this.stopExternalAudio(audio);
+        if (assetName === name && !this.explicitAudio.has(audio)) this.stopExternalAudio(audio);
       }
       return;
     }
     if (kind === 'sound') {
       const {target, sound, soundBank} = this.resolveSoundReference(name);
       for (const [audio, assetName] of [...this.playingAudio]) {
-        if (assetName === name) this.stopExternalAudio(audio);
+        if (assetName === name && !this.explicitAudio.has(audio)) this.stopExternalAudio(audio);
       }
       soundBank.stop(target, sound.soundId as string);
       return;
@@ -1658,6 +1716,9 @@ export class AssetManagerExtension {
 
   private unregisterAsset(name: string): void {
     this.cancelRegistrations(name);
+    for (const [audio, assetName] of [...this.playingAudio]) {
+      if (assetName === name) this.stopExternalAudio(audio);
+    }
     this.invalidateDOMImageResources(name);
     const kind = this.assetRegistry.get(name);
     if (!kind) return;
@@ -2873,83 +2934,29 @@ export class AssetManagerExtension {
     operation: string
   ): {voice: AssetManagerAudioVoice; started: Promise<void>} {
     const blobBytes = bytes instanceof Uint8Array ? new Uint8Array(bytes).buffer : bytes;
-    const objectUrl = URL.createObjectURL(new Blob([blobBytes], {type: mimeType}));
-    let audio: HTMLAudioElement;
-    try {
-      audio = new Audio(objectUrl);
-      audio.volume = initialGain;
-    } catch (error) {
-      URL.revokeObjectURL(objectUrl);
-      throw this.playbackError(name, error, operation);
-    }
-
+    const url = URL.createObjectURL(new Blob([blobBytes], {type: mimeType}));
+    const controller = this.prepareBrowserAudio(name, url, {gain: initialGain}, () => URL.revokeObjectURL(url), operation);
     let active = true;
-    let resolveEnded!: () => void;
-    let rejectEnded!: (error: unknown) => void;
-    const ended = new Promise<void>((resolve, reject) => {
-      resolveEnded = resolve;
-      rejectEnded = reject;
-    });
-    void ended.catch(() => {});
-
-    const cleanup = (error?: unknown) => {
-      if (!active) return;
-      active = false;
-      audio.removeEventListener('ended', handleEnded);
-      audio.removeEventListener('error', handleError);
-      this.playingAudio.delete(audio);
-      this.audioVoiceStops.delete(audio);
-      URL.revokeObjectURL(objectUrl);
-      if (error === undefined) resolveEnded();
-      else rejectEnded(error);
-    };
-    const handleEnded = () => cleanup();
-    const handleError = () => cleanup(
-      operation === 'createAudioVoice'
-        ? this.playbackError(
-            name,
-            new Error('The browser audio element reported a playback error.'),
-            operation
-          )
-        : undefined
-    );
     const stop = () => {
       if (!active) return;
-      try {
-        audio.pause();
-        audio.currentTime = 0;
-      } catch {
-        // Cleanup still owns and releases partially initialized browser audio.
-      }
-      cleanup();
+      active = false;
+      controller.dispose();
     };
+    const started = controller.play();
+    const ended = controller.ended.then(() => stop(), (error: unknown) => {
+      stop();
+      if (operation === 'createAudioVoice') throw error;
+    });
+    void ended.catch(() => {});
     const voice = Object.freeze({
       ended,
       setGain(value: number) {
         const gain = normalizeAudioVoiceGain(value);
-        if (active) audio.volume = gain;
+        if (active) controller.setGain(gain);
       },
       stop
     });
-
-    audio.addEventListener('ended', handleEnded, {once: true});
-    audio.addEventListener('error', handleError, {once: true});
-    this.playingAudio.set(audio, name);
-    this.audioVoiceStops.set(audio, stop);
-    let playResult: Promise<void> | void;
-    try {
-      playResult = audio.play();
-    } catch (error) {
-      const playbackError = this.playbackError(name, error, operation);
-      cleanup(playbackError);
-      return {voice, started: Promise.reject(playbackError)};
-    }
-    const started = Promise.resolve(playResult).catch((error) => {
-      const playbackError = this.playbackError(name, error, operation);
-      cleanup(playbackError);
-      throw playbackError;
-    });
-    return {voice, started};
+    return {voice, started: started.catch((error: unknown) => { stop(); throw error; })};
   }
 
   private async playExternalSound(name: string, waitUntilDone: boolean): Promise<void> {

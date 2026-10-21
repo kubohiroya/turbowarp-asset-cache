@@ -7,6 +7,8 @@ import { type NamedAssetBodyProvider } from './named-body-provider.js';
 export { type AssetManagerAudioVoice, type AssetManagerAudioVoiceOptions } from './audio-voice.js';
 import { type AssetManagerAudioVoice, type AssetManagerAudioVoiceOptions } from './audio-voice.js';
 export { type DOMImageResource } from './dom-image-resource.js';
+export type { AssetManagerAudioSource, AssetManagerAudioPlayback, AssetManagerAudioPlaybackOptions, AssetManagerAudioPlayOptions, AssetManagerAudioFadeOptions, AssetManagerAudioStopOptions } from './audio-playback.js';
+import type { AssetManagerAudioSource, AssetManagerAudioPlayback, AssetManagerAudioPlaybackOptions } from './audio-playback.js';
 export { NAMED_ASSET_BODY_NAMESPACE, NamedAssetBodyError, type NamedAssetBodyErrorCode, type NamedAssetBodyMetadata, type NamedAssetBodyOpenOptions, type NamedAssetBodyProvider, type NamedAssetBodyReference, type NamedAssetBodySnapshot } from './named-body-provider.js';
 export { createBinaryBundleStore, type BinaryBundleBackendStatus, type BinaryBundleBackendWarning, type BinaryBundleFileInput, type BinaryBundleFileRegistration, type BinaryBundleFileResult, type BinaryBundleKeyInput, type BinaryBundleOperationOptions, type BinaryBundlePruneResult, type BinaryBundlePutInput, type BinaryBundleRegistration, type BinaryBundleResult, type BinaryBundleStore, type BinaryBundleStoreStats, type BinaryBundleStoreOptions } from './binary-bundle-store.js';
 export { createIndexedDBBinaryObjectStore, createOpfsBinaryObjectStore, type BinaryObjectDescriptor, type BinaryObjectOperationOptions, type BinaryObjectResult, type BinaryObjectStore, type BinaryObjectStoreStats, type BinaryObjectStatsOptions, type BinaryStorageBackendPolicy, type IndexedDBBinaryObjectStoreOptions, type OpfsBinaryObjectStoreOptions, type OpfsStorageManager } from './binary-object-store.js';
@@ -87,6 +89,7 @@ export interface AssetManagerComposition {
         untilDone?: boolean;
     }>): Promise<void>;
     createAudioVoice(name: unknown, options?: AssetManagerAudioVoiceOptions): Promise<AssetManagerAudioVoice>;
+    createAudioPlayback(source: AssetManagerAudioSource, options?: AssetManagerAudioPlaybackOptions): Promise<AssetManagerAudioPlayback>;
     stopSound(name: unknown): void;
     stopAllSounds(): void;
     resolveVerifiedRemoteBinary(input: VerifiedRemoteBinaryInput, options: VerifiedRemoteBinaryResolveOptions): Promise<VerifiedRemoteBinaryResult>;

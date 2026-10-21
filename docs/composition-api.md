@@ -93,6 +93,10 @@ sound references, runtime text, persistent binary bundles, and OPFS backing fail
 of returning an empty body. The provider itself is absent when the flag is off. Persistent backing
 will use a separate adapter and rollout flag.
 
+### 音声instanceの準備と再生制御
+
+停止状態で準備する `createAudioPlayback` と、既存voice APIとの共通化は[音声controller](audio-playback.md)を参照してください。
+
 ### Audio voices
 
 Composition consumers can start a registered external or project-local sound as an independently
