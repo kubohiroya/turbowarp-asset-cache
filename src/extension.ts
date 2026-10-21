@@ -1344,7 +1344,13 @@ export class AssetManagerExtension {
     let audio: HTMLAudioElement;
     let controller: AssetManagerAudioPlayback;
     try {
-      audio = new Audio(url);
+      const directAudio = operation === 'createAudioPlayback' && /^https?:/u.test(url);
+      audio = directAudio ? new Audio() : new Audio(url);
+      // Explicit URL instances can enter a Web Audio graph after a later volume change.
+      if (directAudio) {
+        audio.crossOrigin = 'anonymous';
+        audio.src = url;
+      }
       controller = createBrowserAudioPlayback(audio, options, () => {
         this.playingAudio.delete(audio);
         this.audioVoiceStops.delete(audio);

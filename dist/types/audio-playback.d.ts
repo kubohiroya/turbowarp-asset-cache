@@ -19,6 +19,7 @@ export interface AssetManagerAudioPlaybackOptions extends AssetManagerAudioFadeO
     readonly playbackRate?: number;
 }
 export interface AssetManagerAudioPlayOptions extends AssetManagerAudioFadeOptions {
+    readonly gain?: number;
     readonly restart?: boolean;
     readonly loop?: boolean;
     readonly signal?: AbortSignal;
@@ -35,7 +36,7 @@ export interface AssetManagerAudioPlayback {
     pause(): void;
     stop(options?: AssetManagerAudioStopOptions): void | Promise<void>;
     seek(seconds: number, signal?: AbortSignal): Promise<void>;
-    setGain(value: number): void;
+    setGain(value: number): void | Promise<void>;
     setMuted(value: boolean): void;
     setPlaybackRate(value: number): void;
     dispose(): void;

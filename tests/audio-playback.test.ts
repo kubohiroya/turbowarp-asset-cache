@@ -231,3 +231,100 @@ describe('reusable browser audio controller', () => {
   });
 
 });
+
+
+function mockWebAudio() {
+  class NodeStub {
+    gain = {value: 1};
+    connect = vi.fn();
+    disconnect = vi.fn();
+  }
+  const contexts: ContextStub[] = [];
+  class ContextStub {
+    state = 'suspended';
+    destination = {};
+    sources: NodeStub[] = [];
+    gains: NodeStub[] = [];
+    resume = vi.fn(async () => { this.state = 'running'; });
+    close = vi.fn(async () => { this.state = 'closed'; });
+    createMediaElementSource = vi.fn(() => { const node = new NodeStub(); this.sources.push(node); return node; });
+    createGain = vi.fn(() => { const node = new NodeStub(); this.gains.push(node); return node; });
+    constructor() { contexts.push(this); }
+  }
+  vi.stubGlobal('AudioContext', ContextStub);
+  return contexts;
+}
+
+describe('amplified playback', () => {
+  it('uses start-time gain above one, preserves fades and shares then releases the output graph', async () => {
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'performance']});
+    const contexts = mockWebAudio();
+    const first = setup();
+    const second = setup();
+    try {
+      await first.playback.play({gain: 2, fadeIn: 1});
+      expect(first.playback.gain).toBe(2);
+      expect(contexts).toHaveLength(1);
+      const context = contexts[0]!;
+      expect(context.resume).toHaveBeenCalledOnce();
+      expect(context.gains[0]!.gain.value).toBe(2);
+      expect(first.audio.volume).toBe(0);
+      await vi.advanceTimersByTimeAsync(520);
+      expect(first.audio.volume).toBeCloseTo(0.5, 1);
+      await first.playback.setGain(3);
+      expect(context.gains[0]!.gain.value).toBe(3);
+      expect(first.playback.gain).toBe(3);
+      await second.playback.play({gain: 2.5});
+      expect(contexts).toHaveLength(1);
+      expect(context.gains[1]!.gain.value).toBe(2.5);
+      await first.playback.setGain(0.5);
+      expect(context.gains[0]!.gain.value).toBe(1);
+      expect(second.playback.gain).toBe(2.5);
+      first.playback.dispose();
+      expect(context.close).not.toHaveBeenCalled();
+      second.playback.dispose();
+      expect(context.close).toHaveBeenCalledOnce();
+      expect(context.sources.every((node) => node.disconnect.mock.calls.length === 1)).toBe(true);
+      expect(context.gains.every((node) => node.disconnect.mock.calls.length === 1)).toBe(true);
+    } finally {
+      first.playback.dispose(); second.playback.dispose(); vi.unstubAllGlobals(); vi.useRealTimers();
+    }
+  });
+
+  it('accepts any finite non-negative gain, validates before interrupting and cancels suspended output startup', async () => {
+    const contexts = mockWebAudio();
+    const {audio, playback} = setup();
+    try {
+      for (const value of [-1, NaN, Infinity, null, '2']) {
+        await expect(playback.play({gain: value as never})).rejects.toThrow();
+        expect(() => playback.setGain(value as never)).toThrow();
+      }
+      await playback.play({gain: Number.MAX_VALUE});
+      expect(playback.gain).toBe(Number.MAX_VALUE);
+      expect(contexts[0]!.gains[0]!.gain.value).toBe(3.4028234663852886e38);
+      await playback.setGain(0);
+      expect(audio.volume).toBe(0);
+      playback.pause();
+      const context = contexts[0]!;
+      context.state = 'suspended';
+      context.resume.mockImplementationOnce(() => new Promise<void>(() => {}));
+      const abort = new AbortController();
+      const starting = playback.play({gain: 2, signal: abort.signal});
+      abort.abort();
+      await expect(starting).rejects.toMatchObject({name: 'AbortError'});
+      expect(audio.paused).toBe(true);
+    } finally { playback.dispose(); vi.unstubAllGlobals(); }
+  });
+
+  it('reports missing Web Audio instead of silently clamping amplification', async () => {
+    vi.stubGlobal('AudioContext', undefined);
+    const {audio, playback} = setup();
+    try {
+      await playback.play();
+      expect(() => playback.setGain(2)).toThrow('Playback failed');
+      expect(playback.gain).toBe(0.3);
+      await expect(playback.play({gain: 2})).rejects.toMatchObject({cause: expect.objectContaining({message: expect.stringMatching(/Web Audio/u)})});
+      expect(audio.paused).toBe(true);
+    } finally { playback.dispose(); vi.unstubAllGlobals(); }
+  });
+});
