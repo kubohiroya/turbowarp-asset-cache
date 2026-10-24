@@ -3,6 +3,7 @@
 // Description: Register, cache, display, and play image, audio, and runtime text assets in TurboWarp.
 // By: Hiroya Kubo
 // License: MPL-2.0
+// Unsandboxed: required
 
 (function (Scratch) {
   'use strict';

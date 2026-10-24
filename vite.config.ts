@@ -14,6 +14,7 @@ export default defineConfig({
       description: 'Register, cache, display, and play image, audio, and runtime text assets in TurboWarp.',
       author: 'Hiroya Kubo',
       license: 'MPL-2.0',
+      unsandboxed: 'required',
       fileName: 'asset-cache.js'
     }),
     {

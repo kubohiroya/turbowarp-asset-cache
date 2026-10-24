@@ -64,6 +64,14 @@ const runtimeContracts = await readFile('docs/runtime-contracts.md', 'utf8');
 const blockDefinitions = JSON.parse(await readFile('src/block-definitions.json', 'utf8')) as unknown;
 const extensionManifest = await readFile('dist/extension-manifest.json', 'utf8');
 
+// The host reads the leading comments before allowing extension code to run.
+const standaloneBundle = await readFile('dist/asset-cache.js', 'utf8');
+const header = standaloneBundle.match(/^(?:\/\/[^\n]*(?:\n|$))*/u)?.[0] ?? '';
+if (!/^\/\/ Unsandboxed: required$/mu.test(header)) {
+  throw new Error('dist/asset-cache.js must declare Unsandboxed: required in its header.');
+}
+
+
 checkPolicy();
 checkPackageMetadata();
 checkReadme();
