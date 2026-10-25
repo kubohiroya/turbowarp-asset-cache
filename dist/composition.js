@@ -710,7 +710,7 @@ var block_definitions_default = {
 	]
 };
 //#endregion
-//#region node_modules/.pnpm/@kubohiroya+turbowarp-extension-data-editor@0.3.3_react@18.3.1/node_modules/@kubohiroya/turbowarp-extension-data-editor/dist/fixed-input-schema.js
+//#region node_modules/.pnpm/@kubohiroya+turbowarp-extension-data-editor@0.3.4_react@18.3.1/node_modules/@kubohiroya/turbowarp-extension-data-editor/dist/fixed-input-schema.js
 var numberToken = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/u;
 var invalidNumber = Object.freeze({
 	kind: "invalid",
@@ -1107,7 +1107,7 @@ function fixedInputRegistration(scratch) {
 	};
 }
 //#endregion
-//#region node_modules/.pnpm/@kubohiroya+turbowarp-named-data@0.3.1/node_modules/@kubohiroya/turbowarp-named-data/dist/composition.js
+//#region node_modules/.pnpm/@kubohiroya+turbowarp-named-data@0.5.0/node_modules/@kubohiroya/turbowarp-named-data/dist/composition.js
 var NAMED_DATA_REGISTRY_SYMBOL_KEY = "@kubohiroya/turbowarp-named-data/registry";
 var NAMED_DATA_REGISTRY_SYMBOL = Symbol.for(NAMED_DATA_REGISTRY_SYMBOL_KEY);
 var NAMED_DATA_NAMESPACE_PATTERN = /^[a-z][a-z0-9.-]{0,63}$/u;
@@ -1198,7 +1198,7 @@ var NamedDataRegistry = class {
 		const provider = this.resolveProvider(reference, representation, context);
 		throwIfAborted(context.signal);
 		try {
-			const metadata = await provider.stat(reference, representation, context);
+			const metadata = snapshotMetadata(await provider.stat(reference, representation, context));
 			throwIfAborted(context.signal);
 			validateMetadata(metadata, reference, representation);
 			return metadata;
@@ -1210,9 +1210,11 @@ var NamedDataRegistry = class {
 		const provider = this.resolveProvider(reference, representation, context);
 		throwIfAborted(context.signal);
 		let opened;
+		let metadata;
 		try {
 			opened = await provider.openBody(reference, representation, context);
-			validateMetadata(opened, reference, representation);
+			metadata = snapshotMetadata(opened);
+			validateMetadata(metadata, reference, representation);
 			if (!(opened.body instanceof Uint8Array) && !(opened.body instanceof ReadableStream)) throw new NamedDataError("NAMED_DATA_INVALID_METADATA", "Provider returned an invalid body.");
 		} catch (error) {
 			throw normalizeProviderError(error);
@@ -1246,14 +1248,7 @@ var NamedDataRegistry = class {
 			}
 		}
 		return Object.freeze({
-			reference: Object.freeze({ ...opened.reference }),
-			nativeRepresentation: opened.nativeRepresentation,
-			representation: opened.representation,
-			mediaType: opened.mediaType,
-			...opened.byteLength === void 0 ? {} : { byteLength: opened.byteLength },
-			...opened.digest === void 0 ? {} : { digest: opened.digest },
-			revision: opened.revision,
-			replayable: opened.replayable,
+			...metadata,
 			body: opened.body,
 			release: tracked.release
 		});
@@ -1364,15 +1359,61 @@ function validateReferenceShape(reference, representation) {
 	if (reference.schemaRef !== void 0) validateSchemaRef(reference.kind, reference.schemaRef);
 }
 function validateMetadata(metadata, reference, representation) {
-	if (metadata.representation !== representation || !isNativeRepresentation(metadata.reference.kind, metadata.nativeRepresentation) || metadata.reference.namespace !== reference.namespace || metadata.reference.name !== reference.name || metadata.reference.kind !== reference.kind || metadata.reference.scope !== reference.scope || typeof metadata.mediaType !== "string" || metadata.mediaType.length === 0 || typeof metadata.revision !== "string" || metadata.revision.length === 0 || typeof metadata.replayable !== "boolean" || metadata.byteLength !== void 0 && (!Number.isSafeInteger(metadata.byteLength) || metadata.byteLength < 0) || metadata.digest !== void 0 && !/^sha256-[A-Za-z0-9_-]+$/u.test(metadata.digest)) throw new NamedDataError("NAMED_DATA_INVALID_METADATA", "Provider returned invalid metadata.");
+	if (metadata.representation !== representation || !isNativeRepresentation(metadata.reference.kind, metadata.nativeRepresentation) || metadata.reference.namespace !== reference.namespace || metadata.reference.name !== reference.name || metadata.reference.kind !== reference.kind || metadata.reference.scope !== reference.scope || typeof metadata.mediaType !== "string" || metadata.mediaType.length === 0 || typeof metadata.revision !== "string" || metadata.revision.length === 0 || typeof metadata.replayable !== "boolean" || metadata.byteLength !== void 0 && (!Number.isSafeInteger(metadata.byteLength) || metadata.byteLength < 0) || metadata.digest !== void 0 && !/^sha256-[A-Za-z0-9_-]+$/u.test(metadata.digest)) throw invalidMetadata();
 	const expectedSchema = reference.schemaRef;
 	const actualSchema = metadata.schemaRef;
 	if (actualSchema !== void 0) validateSchemaRef(metadata.reference.kind, actualSchema, "NAMED_DATA_INVALID_METADATA");
 	if (metadata.reference.schemaRef !== void 0) validateSchemaRef(metadata.reference.kind, metadata.reference.schemaRef, "NAMED_DATA_INVALID_METADATA");
 	if (!sameSchemaRef(expectedSchema, actualSchema) || !sameSchemaRef(expectedSchema, metadata.reference.schemaRef)) throw new NamedDataError("NAMED_DATA_SCHEMA_VERSION_MISMATCH", "Provider schemaRef does not match the requested reference.");
 }
+/**
+* Copies provider metadata once so validation and consumers observe the same frozen identity.
+* Fields are read exactly once; payload bodies are never part of the snapshot.
+*/
+function snapshotMetadata(metadata) {
+	if (typeof metadata !== "object" || metadata === null) throw invalidMetadata();
+	const source = metadata.reference;
+	if (typeof source !== "object" || source === null) throw invalidMetadata();
+	const { namespace, name, kind, scope, schemaRef: referenceSchemaRef } = source;
+	const { nativeRepresentation, representation, mediaType, byteLength, digest, revision, replayable, schemaRef } = metadata;
+	const reference = snapshotSchemaRef(referenceSchemaRef);
+	const resolved = snapshotSchemaRef(schemaRef);
+	return Object.freeze({
+		reference: Object.freeze({
+			namespace,
+			name,
+			kind,
+			scope,
+			...reference === void 0 ? {} : { schemaRef: reference }
+		}),
+		nativeRepresentation,
+		representation,
+		mediaType,
+		...byteLength === void 0 ? {} : { byteLength },
+		...digest === void 0 ? {} : { digest },
+		revision,
+		replayable,
+		...resolved === void 0 ? {} : { schemaRef: resolved }
+	});
+}
+function snapshotSchemaRef(schemaRef) {
+	if (schemaRef === void 0) return void 0;
+	if (typeof schemaRef !== "object" || schemaRef === null || Object.keys(schemaRef).some((key) => key !== "id" && key !== "version")) throw invalidSchemaRef("NAMED_DATA_INVALID_METADATA");
+	const { id, version } = schemaRef;
+	if (typeof id !== "string" || typeof version !== "string") throw invalidSchemaRef("NAMED_DATA_INVALID_METADATA");
+	return Object.freeze({
+		id,
+		version
+	});
+}
 function validateSchemaRef(kind, schemaRef, errorCode = "NAMED_DATA_INVALID_REF") {
-	if (kind !== "structured" || typeof schemaRef !== "object" || schemaRef === null || !NAMED_DATA_SCHEMA_ID_PATTERN.test(String(schemaRef.id ?? "")) || !NAMED_DATA_SCHEMA_VERSION_PATTERN.test(String(schemaRef.version ?? "")) || Object.keys(schemaRef).some((key) => key !== "id" && key !== "version")) throw new NamedDataError(errorCode, "Invalid schemaRef; schema references require a structured value, stable id, and full SemVer version.");
+	if (kind !== "structured" || typeof schemaRef !== "object" || schemaRef === null || !NAMED_DATA_SCHEMA_ID_PATTERN.test(String(schemaRef.id ?? "")) || !NAMED_DATA_SCHEMA_VERSION_PATTERN.test(String(schemaRef.version ?? "")) || Object.keys(schemaRef).some((key) => key !== "id" && key !== "version")) throw invalidSchemaRef(errorCode);
+}
+function invalidSchemaRef(errorCode) {
+	return new NamedDataError(errorCode, "Invalid schemaRef; schema references require a structured value, stable id, and full SemVer version.");
+}
+function invalidMetadata() {
+	return new NamedDataError("NAMED_DATA_INVALID_METADATA", "Provider returned invalid metadata.");
 }
 function sameSchemaRef(left, right) {
 	return left === void 0 ? right === void 0 : right !== void 0 && left.id === right.id && left.version === right.version;
