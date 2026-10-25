@@ -1,6 +1,6 @@
 # 音声instanceの共通controller
 
-追跡: [Issue #6](https://github.com/kubohiroya/turbowarp-asset-cache/issues/6)。開発中の追加APIで、既存公開版に同名APIがあることを示す文書ではありません。
+追跡: [Issue #6](https://github.com/kubohiroya/turbowarp-asset-cache/issues/6)。ここで説明するAPIは0.3.0以降の公開版に含まれます。
 
 `createAudioPlayback({asset: 'Music'}, {gain: 0.7, muted: false, playbackRate: 1, fadeIn: 0.5, fadeOut: 1.5})` は、停止状態の独立したinstanceを返します。`asset` と `url` のどちらか一つが必須です。直接URLは認証情報を含まないHTTP(S)に限定し、anonymous CORSで読み込みます。別originのサーバーにはAccess-Control-Allow-Originが必要です。これは後からsetGainで増幅する場合も必要となる[Web AudioのCORS仕様](https://webaudio.github.io/web-audio-api/#MediaElementAudioSourceNode-security)に従います。準備だけではnative `play()` を呼びません。有効化フラグは不要です。
 
