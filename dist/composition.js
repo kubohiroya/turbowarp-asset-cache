@@ -4097,7 +4097,7 @@ function createOpfsBinaryObjectStore(options = {}) {
 	async function committedObjectMatches(location, descriptor, signal) {
 		assertActive(released, signal);
 		try {
-			await verify(await readFileBytes(await (await location.directory.getFileHandle(location.name)).getFile(), signal), descriptor, subtleCrypto);
+			await verify(await readCommittedBytes(location, signal, false), descriptor, subtleCrypto);
 			assertActive(released, signal);
 			return true;
 		} catch (error) {
@@ -4105,6 +4105,18 @@ function createOpfsBinaryObjectStore(options = {}) {
 			if (error instanceof DOMException && error.name === "NotFoundError") return false;
 			if (error instanceof Error && "code" in error && error.code === "ASSET_BINARY_OPFS_CORRUPT") return false;
 			throw error;
+		}
+	}
+	async function readCommittedBytes(location, signal, retryMissing = true) {
+		for (let attempt = 0;; attempt += 1) {
+			assertActive(released, signal);
+			try {
+				return await readFileBytes(await (await location.directory.getFileHandle(location.name)).getFile(), signal);
+			} catch (error) {
+				assertActive(released, signal);
+				if (!(error instanceof DOMException && (error.name === "NotReadableError" || retryMissing && error.name === "NotFoundError")) || attempt >= 3) throw error;
+				await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
+			}
 		}
 	}
 	function writableConflict(error) {
@@ -4135,13 +4147,12 @@ function createOpfsBinaryObjectStore(options = {}) {
 				assertActive(released, operationOptions.signal);
 				let retryDelayMs = 20;
 				while (!await committedObjectMatches(location, descriptor, operationOptions.signal)) try {
-					const finalHandle = await location.directory.getFileHandle(location.name, { create: true });
-					writable = await finalHandle.createWritable();
+					writable = await (await location.directory.getFileHandle(location.name, { create: true })).createWritable();
 					activeWritables.add(writable);
 					await copyFileToWritable(stagedFile, writable, operationOptions.signal);
 					activeWritables.delete(writable);
 					writable = null;
-					await verify(await readFileBytes(await finalHandle.getFile(), operationOptions.signal), descriptor, subtleCrypto);
+					await verify(await readCommittedBytes(location, operationOptions.signal), descriptor, subtleCrypto);
 					break;
 				} catch (error) {
 					if (writable) {
@@ -4169,8 +4180,7 @@ function createOpfsBinaryObjectStore(options = {}) {
 			const descriptor = validateDescriptor(descriptorValue);
 			assertActive(released, operationOptions.signal);
 			try {
-				const location = await objectLocation(descriptor.key);
-				const bytes = await readFileBytes(await (await location.directory.getFileHandle(location.name)).getFile(), operationOptions.signal);
+				const bytes = await readCommittedBytes(await objectLocation(descriptor.key), operationOptions.signal);
 				assertActive(released, operationOptions.signal);
 				await verify(bytes, descriptor, subtleCrypto);
 				assertActive(released, operationOptions.signal);
@@ -4203,9 +4213,13 @@ function createOpfsBinaryObjectStore(options = {}) {
 			for await (const entry of staging.values()) {
 				assertActive(released, operationOptions.signal);
 				if (entry.kind !== "file") continue;
-				if ((await entry.getFile()).lastModified > createdBefore) continue;
-				await staging.removeEntry(entry.name);
-				removed += 1;
+				try {
+					if ((await entry.getFile()).lastModified > createdBefore) continue;
+					await staging.removeEntry(entry.name);
+					removed += 1;
+				} catch (error) {
+					if (!(error instanceof DOMException && error.name === "NotFoundError")) throw error;
+				}
 				if (removed >= limit) break;
 			}
 			return removed;
