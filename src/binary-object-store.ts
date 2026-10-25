@@ -381,8 +381,7 @@ export function createOpfsBinaryObjectStore(
   ): Promise<boolean> {
     assertActive(released, signal);
     try {
-      const handle = await location.directory.getFileHandle(location.name);
-      const bytes = await readFileBytes(await handle.getFile(), signal);
+      const bytes = await readCommittedBytes(location, signal, false);
       await verify(bytes, descriptor, subtleCrypto);
       assertActive(released, signal);
       return true;
@@ -393,6 +392,30 @@ export function createOpfsBinaryObjectStore(
         return false;
       }
       throw error;
+    }
+  }
+
+  async function readCommittedBytes(
+    location: {directory: FileSystemDirectoryHandle; name: string},
+    signal?: AbortSignal,
+    retryMissing = true
+  ): Promise<OwnedBytes> {
+    for (let attempt = 0; ; attempt += 1) {
+      assertActive(released, signal);
+      try {
+        const handle = await location.directory.getFileHandle(location.name);
+        return await readFileBytes(await handle.getFile(), signal);
+      } catch (error) {
+        assertActive(released, signal);
+        const replaced = error instanceof DOMException && (
+          error.name === 'NotReadableError' || retryMissing && error.name === 'NotFoundError'
+        );
+        if (!replaced || attempt >= 3) {
+          throw error;
+        }
+        // A concurrent commit can invalidate both File snapshots and file handles.
+        await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
+      }
     }
   }
 
@@ -436,7 +459,7 @@ export function createOpfsBinaryObjectStore(
             await copyFileToWritable(stagedFile, writable, operationOptions.signal);
             activeWritables.delete(writable);
             writable = null;
-            const committed = await readFileBytes(await finalHandle.getFile(), operationOptions.signal);
+            const committed = await readCommittedBytes(location, operationOptions.signal);
             await verify(committed, descriptor, subtleCrypto);
             break;
           } catch (error) {
@@ -467,8 +490,7 @@ export function createOpfsBinaryObjectStore(
       assertActive(released, operationOptions.signal);
       try {
         const location = await objectLocation(descriptor.key);
-        const handle = await location.directory.getFileHandle(location.name);
-        const bytes = await readFileBytes(await handle.getFile(), operationOptions.signal);
+        const bytes = await readCommittedBytes(location, operationOptions.signal);
         assertActive(released, operationOptions.signal);
         await verify(bytes, descriptor, subtleCrypto);
         assertActive(released, operationOptions.signal);
@@ -500,10 +522,15 @@ export function createOpfsBinaryObjectStore(
       for await (const entry of staging.values()) {
         assertActive(released, operationOptions.signal);
         if (entry.kind !== 'file') continue;
-        const file = await (entry as FileSystemFileHandle).getFile();
-        if (file.lastModified > createdBefore) continue;
-        await staging.removeEntry(entry.name);
-        removed += 1;
+        try {
+          const file = await (entry as FileSystemFileHandle).getFile();
+          if (file.lastModified > createdBefore) continue;
+          await staging.removeEntry(entry.name);
+          removed += 1;
+        } catch (error) {
+          // A concurrent writer or cleanup can remove a staged file after enumeration.
+          if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
+        }
         if (removed >= limit) break;
       }
       return removed;
