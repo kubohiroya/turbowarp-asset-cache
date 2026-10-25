@@ -1,5 +1,7 @@
 # TurboWarp-Asset-Cache
 
+<img src="assets/block-icon.svg" alt="" width="48" height="48">
+
 [English](README.md)
 
 TurboWarpのプロジェクト向けに、画像・音声・実行時テキストをブラウザ内へ保持するasset cacheです。
