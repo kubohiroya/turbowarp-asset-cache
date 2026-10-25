@@ -65,10 +65,10 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
-    "@kubohiroya/turbowarp-extension-data-editor": "0.2.1",
-    "@kubohiroya/turbowarp-extension-manifest": "0.3.2",
-    "@kubohiroya/turbowarp-named-data": "0.3.1",
-    "@kubohiroya/vite-plugin-turbowarp-extension": "0.7.0",
+    "@kubohiroya/turbowarp-extension-data-editor": "^0.2.1",
+    "@kubohiroya/turbowarp-extension-manifest": "^0.3.2",
+    "@kubohiroya/turbowarp-named-data": "^0.3.1",
+    "@kubohiroya/vite-plugin-turbowarp-extension": "^0.7.0",
     "@types/node": "^22.20.1",
     "@xmldom/xmldom": "0.9.11",
     "eslint": "^9.39.5",
@@ -79,7 +79,7 @@
     "vitest": "^4.1.10"
   },
   "peerDependencies": {
-    "@kubohiroya/turbowarp-named-data": "0.3.1"
+    "@kubohiroya/turbowarp-named-data": "^0.3.1"
   },
   "keywords": [
     "turbowarp",
