@@ -1,5 +1,7 @@
 # TurboWarp-Asset-Cache
 
+[日本語](README.ja.md)
+
 A browser-local image, audio, and runtime-text asset cache for TurboWarp projects, with an explicit OPFS hybrid binary backing for composition hosts. It registers external files, project-local costumes/backdrops/sounds, and Temporary Variables text references for use from TurboWarp blocks or composition hosts.
 
 Asset Cache intentionally keeps the legacy `isLoaded` and cache lifecycle semantics. It is not a general server object store: every block is marked `server.supported: false` in the format 2 manifest. Use [`@kubohiroya/turbowarp-kvs`](https://github.com/kubohiroya/turbowarp-kvs) for portable namespace/key persistence and server lowering.
