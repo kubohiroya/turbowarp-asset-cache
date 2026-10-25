@@ -2,7 +2,7 @@
 
 <img src="assets/block-icon.svg" alt="" width="48" height="48">
 
-[English](README.md)
+[English](README.md) | 日本語
 
 TurboWarpのプロジェクト向けに、画像・音声・実行時テキストをブラウザ内へ保持するasset cacheです。
 composition hostには、OPFSを明示的に選べるhybridなbinary backingを提供します。外部ファイル、
