@@ -21,6 +21,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "assets/",
     "dist/",
     "schemas/",
     "docs/fixed-input-editors.ja.md",
