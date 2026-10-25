@@ -56,6 +56,12 @@ SVG入力は既定で拒否します。remote binaryのcache entryは、保存�
 メンテナはNode.js 22以降と、Corepack経由のpnpmを使います。インストール例とCDN URLのsource of truthは
 `package.json`のversionです。
 
+## セキュリティダイアログの説明言語
+
+この版のビルドでは、既定の英語説明に加えて`Description[ja]`コメントへ日本語の説明を出力します。このメタデータに対応した共通セキュリティダイアログは、Editorが日本語なら日本語の説明を表示し、対応する翻訳がなければ元の説明を表示します。
+
+説明の翻訳は必要な実行モードを変えません。この拡張は引き続き`Unsandboxed: required`です。
+
 ## インストール
 
 [`dist/asset-cache.js`](dist/asset-cache.js)をダウンロードし、TurboWarp Desktopでローカルの
@@ -67,14 +73,14 @@ SVG入力は既定で拒否します。remote binaryのcache entryは、保存�
 versionを付けたnpm packageにも、同じレビュー済みビルドが入っています。
 
 ```bash
-pnpm add --save-exact @kubohiroya/turbowarp-asset-cache@0.3.1
+pnpm add --save-exact @kubohiroya/turbowarp-asset-cache@0.3.2
 ```
 
 `node_modules/@kubohiroya/turbowarp-asset-cache/dist/asset-cache.js`を読み込むか、version固定の
 CDN URLを使います。
 
 ```text
-https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-cache@0.3.1/dist/asset-cache.js
+https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-cache@0.3.2/dist/asset-cache.js
 ```
 
 ## クイックスタート

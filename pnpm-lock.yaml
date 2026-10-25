@@ -21,8 +21,8 @@ importers:
         specifier: 0.3.1
         version: 0.3.1
       '@kubohiroya/vite-plugin-turbowarp-extension':
-        specifier: 0.6.1
-        version: 0.6.1(vite@8.2.2(@types/node@22.20.1)(esbuild@0.28.1)(yaml@2.9.1))
+        specifier: 0.7.0
+        version: 0.7.0(vite@8.2.2(@types/node@22.20.1)(esbuild@0.28.1)(yaml@2.9.1))
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
@@ -287,8 +287,8 @@ packages:
     resolution: {integrity: sha512-Djs+UU+ReiGHMmvpZRBfH1JQbeQp5Veau0wx8wB40j0M02b8Ax4LoueF0GRwp8S/TE4cK5lxmJi8TP9Nvb3KvA==}
     engines: {node: '>=22.18.0'}
 
-  '@kubohiroya/vite-plugin-turbowarp-extension@0.6.1':
-    resolution: {integrity: sha512-p8fvSP3wPNOIzuXvyKayYdx9xvAlwn76unKkIdiSJ2FBsMBkvb5xWfdNXj7ayw54d4qu1KODqsPV4Myn4bPXew==}
+  '@kubohiroya/vite-plugin-turbowarp-extension@0.7.0':
+    resolution: {integrity: sha512-Pd653Ty3f1sRdwvAIGY5YnJmlESGYCN3T4axaLmEfTrKYTqTrrlLQM28cUdu30Y/4oY9vQbVi9d1jBOnTVC+hg==}
     engines: {node: '>=22.18.0'}
     peerDependencies:
       vite: '>=8.0.0'
@@ -1372,7 +1372,7 @@ snapshots:
 
   '@kubohiroya/turbowarp-named-data@0.3.1': {}
 
-  '@kubohiroya/vite-plugin-turbowarp-extension@0.6.1(vite@8.2.2(@types/node@22.20.1)(esbuild@0.28.1)(yaml@2.9.1))':
+  '@kubohiroya/vite-plugin-turbowarp-extension@0.7.0(vite@8.2.2(@types/node@22.20.1)(esbuild@0.28.1)(yaml@2.9.1))':
     dependencies:
       acorn: 8.18.0
       vite: 8.2.2(@types/node@22.20.1)(esbuild@0.28.1)(yaml@2.9.1)

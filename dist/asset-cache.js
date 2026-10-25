@@ -4,6 +4,7 @@
 // By: Hiroya Kubo
 // License: MPL-2.0
 // Unsandboxed: required
+// Description[ja]: TurboWarpで画像・音声・実行時テキストの素材を登録・保持し、表示・再生します。
 
 (function (Scratch) {
   'use strict';
