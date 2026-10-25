@@ -17,11 +17,17 @@
           await store.put(event.data.value);
           window.opener.postMessage({type: 'complete', peerId}, location.origin);
         } catch (error) {
+          const causes = [];
+          const seen = new Set();
+          for (let cause = error; cause && !seen.has(cause); cause = cause.cause) {
+            seen.add(cause);
+            causes.push(`${cause.code ?? cause.name}: ${cause.message}`);
+          }
           window.opener.postMessage({
             type: 'failed',
             peerId,
             code: error?.code ?? error?.name,
-            message: error?.message
+            message: causes.join(' <- ')
           }, location.origin);
         } finally {
           await store?.release();
