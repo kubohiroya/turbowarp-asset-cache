@@ -303,6 +303,138 @@ describe('OPFS binary object store', () => {
     await expect(store.get(descriptor)).resolves.toMatchObject({bytes});
   });
 
+  it.each(['NotReadableError', 'NotFoundError'] as const)(
+    'reacquires files invalidated by a concurrent commit with %s', async (name) => {
+      const root = new MemoryDirectory('root');
+      const bytes = Uint8Array.from([1, 2, 3]);
+      const descriptor = {key: 'concurrent-snapshot', size: 3, integrity: await integrity(bytes)};
+      const store = createOpfsBinaryObjectStore({
+        rootDirectory: root as unknown as FileSystemDirectoryHandle
+      });
+      const original = MemoryFileHandle.prototype.getFile;
+      let invalidate = true;
+      let invalidations = 0;
+      const getFile = vi.spyOn(MemoryFileHandle.prototype, 'getFile').mockImplementation(async function (this: MemoryFileHandle) {
+        const file = await original.call(this);
+        if (invalidate && this.name.length === 64 && file.size === bytes.byteLength) {
+          invalidate = false;
+          invalidations += 1;
+          if (name === 'NotFoundError') throw new DOMException('Handle replaced after lookup', name);
+          vi.spyOn(file, 'arrayBuffer').mockRejectedValue(
+            new DOMException('File changed after getFile()', name)
+          );
+        }
+        return file;
+      });
+      try {
+        await store.put(descriptor, bytes);
+        expect(invalidations).toBe(1);
+        invalidate = true;
+        await expect(store.get(descriptor)).resolves.toMatchObject({bytes});
+        expect(invalidations).toBe(2);
+      } finally {
+        getFile.mockRestore();
+      }
+    }
+  );
+
+  it.each([
+    ['NotReadableError', 4],
+    ['NotFoundError', 4],
+    ['NotAllowedError', 1]
+  ] as const)('stops on persistent %s without unbounded read retries', async (name, attempts) => {
+    const root = new MemoryDirectory('root');
+    const bytes = Uint8Array.from([1, 2, 3]);
+    const descriptor = {key: 'unreadable-snapshot', size: 3, integrity: await integrity(bytes)};
+    const store = createOpfsBinaryObjectStore({
+      rootDirectory: root as unknown as FileSystemDirectoryHandle
+    });
+    const original = MemoryFileHandle.prototype.getFile;
+    let reads = 0;
+    const getFile = vi.spyOn(MemoryFileHandle.prototype, 'getFile').mockImplementation(async function (this: MemoryFileHandle) {
+      const file = await original.call(this);
+      if (this.name.length === 64 && file.size === bytes.byteLength) {
+        reads += 1;
+        vi.spyOn(file, 'arrayBuffer').mockRejectedValue(new DOMException('unreadable', name));
+      }
+      return file;
+    });
+    try {
+      await expect(store.put(descriptor, bytes)).rejects.toMatchObject({
+        code: 'ASSET_BINARY_OPFS_WRITE_FAILED',
+        cause: {name}
+      });
+      expect(reads).toBe(attempts);
+    } finally {
+      getFile.mockRestore();
+    }
+  });
+
+  it.each(['abort', 'release'] as const)('stops snapshot retries after %s', async (operation) => {
+    const root = new MemoryDirectory('root');
+    const bytes = Uint8Array.from([1, 2, 3]);
+    const descriptor = {key: 'cancelled-snapshot', size: 3, integrity: await integrity(bytes)};
+    const store = createOpfsBinaryObjectStore({
+      rootDirectory: root as unknown as FileSystemDirectoryHandle
+    });
+    const controller = new AbortController();
+    const original = MemoryFileHandle.prototype.getFile;
+    let reads = 0;
+    const getFile = vi.spyOn(MemoryFileHandle.prototype, 'getFile').mockImplementation(async function (this: MemoryFileHandle) {
+      const file = await original.call(this);
+      if (this.name.length === 64 && file.size === bytes.byteLength) {
+        reads += 1;
+        vi.spyOn(file, 'arrayBuffer').mockImplementation(async () => {
+          if (operation === 'abort') controller.abort();
+          else await store.release();
+          throw new DOMException('snapshot invalidated', 'NotReadableError');
+        });
+      }
+      return file;
+    });
+    try {
+      await expect(store.put(descriptor, bytes, {signal: controller.signal})).rejects.toMatchObject({
+        code: operation === 'abort' ? 'ASSET_BINARY_ABORTED' : 'ASSET_BINARY_STORE_RELEASED'
+      });
+      expect(reads).toBe(1);
+    } finally {
+      getFile.mockRestore();
+    }
+  });
+
+  it.each(['read', 'delete'] as const)(
+    'continues staging cleanup when another tab removes an entry before %s', async (phase) => {
+      const root = new MemoryDirectory('root');
+      const bytes = Uint8Array.from([1]);
+      const store = createOpfsBinaryObjectStore({
+        rootDirectory: root as unknown as FileSystemDirectoryHandle
+      });
+      await store.put({key: 'cleanup-race', size: 1, integrity: await integrity(bytes)}, bytes);
+      const product = root.entries.get('tw-asset-cache') as MemoryDirectory;
+      const version = product.entries.get('opfs-v1') as MemoryDirectory;
+      const staging = version.entries.get('staging') as MemoryDirectory;
+      const vanished = await staging.getFileHandle('vanished-stage', {create: true});
+      await staging.getFileHandle('remaining-stage', {create: true});
+      if (phase === 'read') {
+        vi.spyOn(vanished, 'getFile').mockImplementation(async () => {
+          staging.entries.delete('vanished-stage');
+          throw new DOMException('concurrent commit removed staging', 'NotFoundError');
+        });
+      } else {
+        const remove = staging.removeEntry;
+        vi.spyOn(staging, 'removeEntry').mockImplementation(async (name) => {
+          if (name === 'vanished-stage') {
+            staging.entries.delete(name);
+            throw new DOMException('concurrent cleanup removed staging', 'NotFoundError');
+          }
+          return remove.call(staging, name);
+        });
+      }
+      await expect(store.cleanupStaging?.({createdBefore: Date.now() + 1_000})).resolves.toBe(1);
+      expect(staging.entries.size).toBe(0);
+    }
+  );
+
   it('reports physical, staging, pending-deletion, and orphan OPFS bytes', async () => {
     const root = new MemoryDirectory('root');
     const referencedBytes = Uint8Array.from([1, 2]);
