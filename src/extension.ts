@@ -1,3 +1,4 @@
+import {extensionConfig} from './config.js';
 import {createBrowserAudioPlayback, validateAudioPlaybackOptions, type AssetManagerAudioSource, type AssetManagerAudioPlayback, type AssetManagerAudioPlaybackOptions} from './audio-playback.js';
 import definitions from './block-definitions.json' with {type: 'json'};
 import {fixedInputRegistration} from './fixed-input-editors.js';
@@ -50,12 +51,10 @@ import {
   textStyleRuntimeVariableName
 } from './text-style.js';
 
-export const EXTENSION_ID = 'kubohiroyaassetcache';
+export const EXTENSION_ID = extensionConfig.id;
 export const EXTENSION_VERSION = '0.14.0';
-export const EXTENSION_DOCS_URI = 'https://kubohiroya.github.io/turbowarp-asset-cache/';
-export const BLOCK_ICON_URI = `data:image/svg+xml,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="4" y="8" width="40" height="32" rx="6" fill="#59C059"/><path d="M14 20h12l3 3h7v12a2 2 0 0 1-2 2H14a2 2 0 0 1-2-2V22a2 2 0 0 1 2-2z" fill="#fff"/><path d="M24 17v8M21 22l3 3 3-3" fill="none" stroke="#59C059" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-)}`;
+export const EXTENSION_DOCS_URI = extensionConfig.docsURI;
+export const BLOCK_ICON_URI = extensionConfig.blockIconURI;
 
 const DB_NAME = 'tw-asset-cache';
 const DB_VERSION = 1;
@@ -978,7 +977,9 @@ export class AssetManagerExtension {
       name: Scratch.translate(definitions.extensionName),
       docsURI: EXTENSION_DOCS_URI,
       blockIconURI: BLOCK_ICON_URI,
-      color1: '#5b7cfa', color2: '#425ed8', color3: '#2f46aa',
+      color1: extensionConfig.color1,
+      color2: extensionConfig.color2,
+      color3: extensionConfig.color3,
       blocks
     };
   }

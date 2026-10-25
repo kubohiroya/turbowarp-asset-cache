@@ -4,10 +4,10 @@ import { type AssetManagerFeatureFlags } from './feature-flags.js';
 import { type DOMImageResource } from './dom-image-resource.js';
 import { type AssetManagerAudioVoice, type AssetManagerAudioVoiceOptions } from './audio-voice.js';
 import { type NamedAssetBodyProvider } from './named-body-provider.js';
-export declare const EXTENSION_ID = "kubohiroyaassetcache";
+export declare const EXTENSION_ID: "kubohiroyaassetcache";
 export declare const EXTENSION_VERSION = "0.14.0";
-export declare const EXTENSION_DOCS_URI = "https://kubohiroya.github.io/turbowarp-asset-cache/";
-export declare const BLOCK_ICON_URI: string;
+export declare const EXTENSION_DOCS_URI: "https://kubohiroya.github.io/turbowarp-asset-cache/";
+export declare const BLOCK_ICON_URI: `data:image/svg+xml,${string}`;
 type BlockArgs = Record<string, unknown>;
 export type AssetKind = 'external' | 'costume' | 'backdrop' | 'sound' | 'text';
 export interface EmbeddedAssetBytesInput {
@@ -132,13 +132,13 @@ export declare class AssetManagerExtension {
     loadingBackdrop(): string;
     loadingCostumeAt(args: BlockArgs): string;
     getInfo(): {
-        id: string;
+        id: "kubohiroyaassetcache";
         name: string;
-        docsURI: string;
-        blockIconURI: string;
-        color1: string;
-        color2: string;
-        color3: string;
+        docsURI: "https://kubohiroya.github.io/turbowarp-asset-cache/";
+        blockIconURI: `data:image/svg+xml,${string}`;
+        color1: "#5b7cfa";
+        color2: "#425ed8";
+        color3: "#2f46aa";
         blocks: Record<string, unknown>[];
     };
     /** Release only this optional editor registration; runtime data remains unchanged. */
