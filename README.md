@@ -1,5 +1,7 @@
 # TurboWarp-Asset-Cache
 
+<img src="assets/block-icon.svg" alt="" width="48" height="48">
+
 [日本語](README.ja.md)
 
 A browser-local image, audio, and runtime-text asset cache for TurboWarp projects, with an explicit OPFS hybrid binary backing for composition hosts. It registers external files, project-local costumes/backdrops/sounds, and Temporary Variables text references for use from TurboWarp blocks or composition hosts.
