@@ -41,6 +41,12 @@ SVG input is reject-by-default, remote binary cache entries are size/content-typ
 
 Maintainers use Node.js 22 or later with pnpm through Corepack. The package version in `package.json` is the source of truth for install examples and CDN URLs.
 
+## Security dialog description language
+
+Builds include a Japanese `Description[ja]` header alongside the default English
+description. A supporting shared security dialog follows the Editor locale and falls back to
+the original description when no translation is available. Translation does not change the `Unsandboxed: required` requirement.
+
 ## Installation
 
 Download [`dist/asset-cache.js`](dist/asset-cache.js), then open TurboWarp Desktop and load it as a local custom extension. Enable **Run extension without sandbox** when prompted.
@@ -50,13 +56,13 @@ The built JavaScript file is committed to this repository so users do not need t
 The versioned npm package contains the same reviewed build:
 
 ```bash
-pnpm add --save-exact @kubohiroya/turbowarp-asset-cache@0.3.1
+pnpm add --save-exact @kubohiroya/turbowarp-asset-cache@0.3.2
 ```
 
 Load `node_modules/@kubohiroya/turbowarp-asset-cache/dist/asset-cache.js`, or use the version-pinned CDN URL:
 
 ```text
-https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-cache@0.3.1/dist/asset-cache.js
+https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-cache@0.3.2/dist/asset-cache.js
 ```
 
 ## Quick Start
