@@ -55,7 +55,7 @@ Animated Text（`text`）が必要です。
 SVG入力は既定で拒否します。remote binaryのcache entryは、保存前にサイズ・content-type・SHA-256を
 検証します。IndexedDBは機密の境界ではなく補助的なcacheとして扱います。
 
-メンテナはNode.js 22以降と、Corepack経由のpnpmを使います。インストール例とCDN URLのsource of truthは
+メンテナはNode.js 24以降と、Corepack経由のpnpmを使います。インストール例とCDN URLのsource of truthは
 `package.json`のversionです。
 
 ## セキュリティダイアログの説明言語
@@ -121,6 +121,7 @@ assets.releaseAll();
 ## 開発
 
 ```bash
+npm install --global corepack@latest
 corepack enable
 pnpm install --frozen-lockfile
 pnpm run check
