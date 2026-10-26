@@ -41,7 +41,7 @@ Standalone use requires TurboWarp Desktop or another TurboWarp environment that 
 
 SVG input is reject-by-default, remote binary cache entries are size/content-type/SHA-256 verified before storage, and IndexedDB is treated as an auxiliary cache rather than a secrecy boundary.
 
-Maintainers use Node.js 22 or later with pnpm through Corepack. The package version in `package.json` is the source of truth for install examples and CDN URLs.
+Maintainers use Node.js 24 or later with pnpm through Corepack. The package version in `package.json` is the source of truth for install examples and CDN URLs.
 
 ## Security dialog description language
 
@@ -99,6 +99,7 @@ assets.releaseAll();
 ## Development
 
 ```bash
+npm install --global corepack@latest
 corepack enable
 pnpm install --frozen-lockfile
 pnpm run check
