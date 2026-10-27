@@ -1118,7 +1118,7 @@ function fixedInputRegistration(scratch) {
 	};
 }
 //#endregion
-//#region node_modules/.pnpm/@kubohiroya+turbowarp-named-data@0.6.0/node_modules/@kubohiroya/turbowarp-named-data/dist/composition.js
+//#region node_modules/.pnpm/@kubohiroya+turbowarp-named-data@0.6.1/node_modules/@kubohiroya/turbowarp-named-data/dist/composition.js
 var NAMED_DATA_REGISTRY_SYMBOL_KEY = "@kubohiroya/turbowarp-named-data/registry";
 var NAMED_DATA_REGISTRY_SYMBOL = Symbol.for(NAMED_DATA_REGISTRY_SYMBOL_KEY);
 var NAMED_DATA_NAMESPACE_PATTERN = /^[a-z][a-z0-9.-]{0,63}$/u;
