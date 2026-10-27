@@ -1,0 +1,21 @@
+{
+  "baseURL": "https://kubohiroya.github.io/turbowarp-asset-cache/",
+  "extension": {
+    "id": "kubohiroyaassetcache",
+    "bundle": "dist/asset-cache.js",
+    "unsandboxed": true
+  },
+  "samples": [
+    {
+      "name": "show-cached-svg",
+      "title": "asset-cache minimal demo",
+      "instructions": "Press Space to release the star",
+      "checks": [
+        {
+          "variable": "sample-result",
+          "equals": true
+        }
+      ]
+    }
+  ]
+}

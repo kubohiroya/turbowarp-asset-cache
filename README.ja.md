@@ -21,6 +21,14 @@ session backingのAPIは`@kubohiroya/turbowarp-kvs`から直接importしてく�
 プロジェクトでは、拡張機能IDも`kubohiroyaassetmanager`から`kubohiroyaassetcache`へ置き換える必要が
 あります。公開済みのSB3成果物は、元の拡張機能に固定したままにしてください。
 
+## 最小デモ
+
+[Open in TurboWarp Editor](https://turbowarp.org/editor?project_url=https%3A%2F%2Fkubohiroya.github.io%2Fturbowarp-asset-cache%2Fsamples%2Fshow-cached-svg.sb3) · [Download SB3](https://kubohiroya.github.io/turbowarp-asset-cache/samples/show-cached-svg.sb3)
+
+緑の旗で自作SVGの星を取得・登録・表示し、`Result` がtrueになります。Spaceで通常コスチュームに戻し、このサンプルの資源だけをメモリとキャッシュから削除します。`Result` はfalseになります。
+
+公式TurboWarp Editorでカスタム拡張の確認画面の **Run extension without sandbox** をチェックし、**Allow** を選択してください。SB3はこのリポジトリの配布JSを内包します。 SVGは同じGitHub Pagesから取得します。追加拡張は不要です。
+
 ## ユーザーガイド
 
 導入手順、安全上の注意、レシピ、図入りのblock解説は

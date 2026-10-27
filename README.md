@@ -15,6 +15,14 @@ session-backing APIs directly from `@kubohiroya/turbowarp-kvs`. Standalone proje
 replace the extension ID `kubohiroyaassetmanager` with `kubohiroyaassetcache`; published historical
 SB3 artifacts should remain pinned to their original extension.
 
+## Minimal demo
+
+[Open in TurboWarp Editor](https://turbowarp.org/editor?project_url=https%3A%2F%2Fkubohiroya.github.io%2Fturbowarp-asset-cache%2Fsamples%2Fshow-cached-svg.sb3) · [Download SB3](https://kubohiroya.github.io/turbowarp-asset-cache/samples/show-cached-svg.sb3)
+
+Click the green flag to register and display the sample-owned SVG star; `Result` becomes true. Press Space to restore the costume and remove only this sample asset from memory and cache; `Result` becomes false.
+
+In the official TurboWarp Editor, enable **Run extension without sandbox** and choose **Allow**. The SB3 embeds this repository’s distributed JavaScript. The SVG is fetched from the same GitHub Pages site; no additional extension is required.
+
 ## User Guide
 
 For setup, safety notes, recipes, and the illustrated block guide, see the [English user guide](https://kubohiroya.github.io/turbowarp-asset-cache/) or [Japanese user guide](https://kubohiroya.github.io/turbowarp-asset-cache/ja/).

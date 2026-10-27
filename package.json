@@ -60,8 +60,11 @@
     "archive:check": "node scripts/check-github-archive.ts",
     "pack:check": "npm pack --dry-run --ignore-scripts",
     "release:check": "npm publish --dry-run --access public",
-    "check": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build && pnpm run test:browser:opfs && pnpm run types:composition:check && pnpm run docs:check && pnpm run docs:site:check && pnpm run check:dist && pnpm run archive:check && pnpm run repo:check && pnpm run pack:check",
-    "prepack": "pnpm run build"
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build && pnpm run test:browser:opfs && pnpm run types:composition:check && pnpm run docs:check && pnpm run docs:site:check && pnpm run check:dist && pnpm run archive:check && pnpm run repo:check && pnpm run pack:check && pnpm run samples:check",
+    "prepack": "pnpm run build",
+    "samples:build": "node scripts/build-samples.mjs",
+    "samples:check": "node scripts/build-samples.mjs --check && node --test scripts/verify-samples.mjs",
+    "pages:build": "node scripts/prepare-pages.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
