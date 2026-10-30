@@ -818,8 +818,8 @@ export function validateProjectAssetAddress(
 }
 
 export class AssetManagerExtension {
-  protected readonly runtime = Scratch.vm.runtime;
-  private readonly renderer = this.runtime.renderer;
+  protected readonly runtime: TurboWarpRuntime;
+  private readonly renderer: TurboWarpRenderer;
   private readonly externalAssets = new Map<string, ExternalMemoryAsset>();
   private readonly costumeAssets = new Map<string, CostumeAssetReference>();
   private readonly soundAssets = new Map<string, SoundAssetReference>();
@@ -876,7 +876,17 @@ export class AssetManagerExtension {
 
   private readonly fixedEditors = fixedInputRegistration(Scratch);
 
-  constructor(featureFlags: AssetManagerFeatureFlags = FEATURE_FLAGS) {
+  private listeningForTargetStops = false;
+  private readonly releaseStoppedTarget = (target?: TurboWarpTarget): void => {
+    if (target && !this.runtime.targets.includes(target)) this.displayedAssets.delete(target.id);
+  };
+
+  constructor(
+    featureFlags: AssetManagerFeatureFlags = FEATURE_FLAGS,
+    runtime: TurboWarpRuntime = Scratch.vm.runtime
+  ) {
+    this.runtime = runtime;
+    this.renderer = runtime.renderer;
     this.featureFlags = Object.freeze({...featureFlags});
     if (this.featureFlags.NAMED_ASSET_BODY_PROVIDER) {
       this.namedBodyProviderValue = this.createNamedBodyProvider();
@@ -891,11 +901,21 @@ export class AssetManagerExtension {
       );
       this.startListeningForNamedBodyLifecycle();
     }
-    this.runtime.on?.('STOP_FOR_TARGET', (target?: TurboWarpTarget) => {
-      if (target && !this.runtime.targets.includes(target)) {
-        this.displayedAssets.delete(target.id);
-      }
-    });
+    this.ensureRuntimeListeners();
+  }
+
+  /** A reusable composition reattaches its own listener when registering new assets. */
+  ensureRuntimeListeners(): void {
+    if (this.listeningForTargetStops || !this.runtime.on) return;
+    this.runtime.on('STOP_FOR_TARGET', this.releaseStoppedTarget);
+    this.listeningForTargetStops = true;
+  }
+
+  /** Release only this instance's subscription, leaving other runtime owners untouched. */
+  releaseRuntimeListeners(): void {
+    if (!this.listeningForTargetStops || !this.runtime.off) return;
+    this.runtime.off('STOP_FOR_TARGET', this.releaseStoppedTarget);
+    this.listeningForTargetStops = false;
   }
 
   setLoadingBackdrop(args: BlockArgs): void {

@@ -124,7 +124,13 @@ export declare class AssetManagerExtension {
     private readonly releaseNamedBodySnapshotsForLifecycle;
     private readonly unregisterNamedBodyProviderForRuntimeDispose;
     private readonly fixedEditors;
-    constructor(featureFlags?: AssetManagerFeatureFlags);
+    private listeningForTargetStops;
+    private readonly releaseStoppedTarget;
+    constructor(featureFlags?: AssetManagerFeatureFlags, runtime?: TurboWarpRuntime);
+    /** A reusable composition reattaches its own listener when registering new assets. */
+    ensureRuntimeListeners(): void;
+    /** Release only this instance's subscription, leaving other runtime owners untouched. */
+    releaseRuntimeListeners(): void;
     setLoadingBackdrop(args: BlockArgs): void;
     setLoadingCostumes(args: BlockArgs): void;
     prepareLoadingAssets(args: BlockArgs, util: ScratchBlockUtility): void;

@@ -54,6 +54,11 @@ Standalone拡張機能を使います。
 importし、registryを内部に閉じたまま、パレットへAsset Cacheのblockを追加したくない場合はComposition APIを
 使います。
 
+独立したプレビューVMでは、`createAssetManagerComposition.supportsRuntimeIsolation === true`を確認し、
+`createAssetManagerComposition(undefined, {runtime: previewVm.runtime})`で描画とイベント購読の所有先を指定します。
+省略時は従来どおり拡張機能のホストruntimeを使います。終了時の`releaseAll()`は、そのcompositionが所有する
+`STOP_FOR_TARGET`購読も解除します。同じcompositionへ再登録すると必要な購読を再開します。
+
 ## 動作条件と安全性
 
 standaloneでの利用には、TurboWarp Desktop、またはunsandboxedなカスタム拡張機能を読み込める他の
@@ -83,14 +88,14 @@ SVG入力は既定で拒否します。remote binaryのcache entryは、保存�
 versionを付けたnpm packageにも、同じレビュー済みビルドが入っています。
 
 ```bash
-pnpm add --save-exact @kubohiroya/turbowarp-asset-cache@0.6.0
+pnpm add --save-exact @kubohiroya/turbowarp-asset-cache@0.6.1
 ```
 
 `node_modules/@kubohiroya/turbowarp-asset-cache/dist/asset-cache.js`を読み込むか、version固定の
 CDN URLを使います。
 
 ```text
-https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-cache@0.6.0/dist/asset-cache.js
+https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-cache@0.6.1/dist/asset-cache.js
 ```
 
 ## クイックスタート

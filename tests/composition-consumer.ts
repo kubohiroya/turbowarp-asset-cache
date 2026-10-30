@@ -218,3 +218,10 @@ void directSession;
 void compositionSession;
 void audioVoice;
 void namedBodyProvider;
+
+// Runtime injection must be consumable without the extension's ambient Scratch declarations.
+const isolatedRuntime = {renderer: {}, targets: []};
+const isolatedComposition: AssetManagerComposition = createAssetManagerComposition(undefined, {runtime: isolatedRuntime});
+const runtimeIsolationSupported: true = createAssetManagerComposition.supportsRuntimeIsolation;
+void isolatedComposition;
+void runtimeIsolationSupported;
