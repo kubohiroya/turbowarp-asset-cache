@@ -138,6 +138,78 @@ describe('Asset Cache composition API', () => {
     expect(second.isRegistered('Beach')).toBe(true);
   });
 
+  it('binds an independent runtime without reading or subscribing to the global editor runtime', async () => {
+    const main = Scratch.vm.runtime;
+    const mainListener = vi.fn();
+    main.on!('STOP_FOR_TARGET', mainListener);
+    const before = [...runtimeListeners.get('STOP_FOR_TARGET')!];
+    const listeners = new Map<string, Set<(target?: TurboWarpTarget) => void>>();
+    const previewUpdate = vi.fn();
+    const previewStage: TurboWarpTarget = {
+      ...stage, id: 'preview-stage', drawableID: 50,
+      sprite: {...stage.sprite!, costumes: [{name: 'Beach', assetId: 'preview-beach', skinId: 90, dataFormat: 'svg'}]}
+    };
+    const previewActor: TurboWarpTarget = {...actor, id: 'preview-actor', drawableID: 51};
+    const preview: TurboWarpRuntime = {
+      renderer: {...main.renderer, updateDrawableSkinId: previewUpdate},
+      targets: [previewStage, previewActor],
+      on(event, listener) {
+        const callbacks = listeners.get(event) ?? new Set();callbacks.add(listener);listeners.set(event, callbacks);
+      },
+      off(event, listener) {listeners.get(event)?.delete(listener);}
+    };
+    Object.defineProperty(Scratch.vm, 'runtime', {configurable: true, get() {throw new Error('editor runtime accessed');}});
+    try {
+      expect(createAssetManagerComposition.supportsRuntimeIsolation).toBe(true);
+      const assets = createAssetManagerComposition(undefined, {runtime: preview});
+      expect(listeners.get('STOP_FOR_TARGET')?.size).toBe(1);
+      await assets.registerProjectAsset({name: 'Beach', resourceId: 'backdrop:Beach'});
+      await assets.applyToStage('Beach');expect(previewUpdate).toHaveBeenLastCalledWith(50, 90);
+      await assets.applyToTarget('Beach', previewActor);expect(previewUpdate).toHaveBeenLastCalledWith(51, 90);
+      expect(updateDrawableSkinId).not.toHaveBeenCalled();
+      for (const callback of listeners.get('STOP_FOR_TARGET') ?? []) callback(previewActor);
+      expect(mainListener).not.toHaveBeenCalled();expect(runtimeListeners.get('STOP_FOR_TARGET')).toEqual(before);
+      assets.releaseAll();assets.releaseAll();expect(listeners.get('STOP_FOR_TARGET')?.size).toBe(0);
+      expect(runtimeListeners.get('STOP_FOR_TARGET')).toEqual(before);
+      await assets.registerProjectAsset({name: 'Beach', resourceId: 'backdrop:Beach'});
+      expect(listeners.get('STOP_FOR_TARGET')?.size).toBe(1);
+      assets.releaseAll();expect(listeners.get('STOP_FOR_TARGET')?.size).toBe(0);
+    } finally {Object.defineProperty(Scratch.vm, 'runtime', {configurable: true, value: main});}
+  });
+
+  it('keeps repeated runtime-isolated compositions out of the editor listener table', () => {
+    const main = Scratch.vm.runtime;
+    const before = [...runtimeListeners.get('STOP_FOR_TARGET') ?? []];
+    for (let index = 0; index < 20; index++) {
+      const owned = new Set<(target?: TurboWarpTarget) => void>();
+      const preview = {...main, on(_event: string, listener: (target?: TurboWarpTarget) => void) {owned.add(listener);},
+        off(_event: string, listener: (target?: TurboWarpTarget) => void) {owned.delete(listener);}};
+      const assets = createAssetManagerComposition(undefined, {runtime: preview});
+      expect(owned.size).toBe(1);assets.releaseAll();expect(owned.size).toBe(0);
+    }
+    expect(runtimeListeners.get('STOP_FOR_TARGET') ?? []).toEqual(before);
+  });
+
+  it('preserves legacy composition creation before the global renderer is attached', () => {
+    const main = Scratch.vm.runtime;
+    Object.defineProperty(Scratch.vm, 'runtime', {
+      configurable: true, value: {...main, renderer: undefined}
+    });
+    try {
+      const assets = createAssetManagerComposition();
+      expect(assets.isRegistered('not-loaded')).toBe(false);
+      assets.releaseAll();
+    } finally {Object.defineProperty(Scratch.vm, 'runtime', {configurable: true, value: main});}
+  });
+
+  it('rejects a malformed injected runtime before adding subscriptions', () => {
+    const before = runtimeOn.mock.calls.length;
+    for (const runtime of [null, {}, {targets: []}, {targets: {}, renderer: {}}]) {
+      expect(() => createAssetManagerComposition(undefined, {runtime: runtime as never})).toThrow(/runtime/);
+    }
+    expect(runtimeOn.mock.calls.length).toBe(before);
+  });
+
   it('keeps the named asset body provider disabled by default', () => {
     const assets = createAssetManagerComposition();
     expect(assets.getNamedBodyProvider()).toBeNull();

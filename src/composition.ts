@@ -195,7 +195,21 @@ export interface DOMImageResourceBindingOptions {
   readonly owner?: AssetManagerCompositionTarget;
 }
 
+/** Public runtime boundary; rendering and asset capabilities are checked when used. */
+export interface AssetManagerCompositionRuntime {
+  readonly renderer: object;
+  readonly targets: readonly object[];
+  readonly storage?: unknown;
+  readonly stageWidth?: number;
+  on?(eventName: string, listener: (target?: AssetManagerCompositionTarget) => void): unknown;
+  off?(eventName: string, listener: (target?: AssetManagerCompositionTarget) => void): unknown;
+  requestRedraw?(): unknown;
+  getOpcodeFunction?(opcode: string): unknown;
+}
+
 export interface AssetManagerCompositionOptions {
+  /** Explicit owner for independent preview/player runtimes; defaults to the extension host. */
+  readonly runtime?: AssetManagerCompositionRuntime;
   readonly verifiedRemoteCache?: VerifiedRemoteBinaryCacheOptions;
   readonly binaryBundleStore?: BinaryBundleStoreOptions;
   readonly sessionBinaryBacking?: SessionBinaryBackingOptions;
@@ -272,9 +286,14 @@ export function createAssetManagerComposition(
   if (!options || typeof options !== 'object' || Array.isArray(options)) {
     throw new TypeError('Asset Cache composition options must be an object.');
   }
-  const extension = featureFlags
-    ? new AssetManagerExtension(featureFlags)
-    : new AssetManagerExtension();
+  const runtimeInput = options.runtime === undefined ? Scratch.vm.runtime : options.runtime;
+  if (options.runtime !== undefined &&
+      (!runtimeInput || typeof runtimeInput !== 'object' || !Array.isArray(runtimeInput.targets) ||
+       !runtimeInput.renderer || typeof runtimeInput.renderer !== 'object')) {
+    throw new TypeError('Asset Cache composition runtime must provide targets and renderer.');
+  }
+  const runtime = runtimeInput as TurboWarpRuntime;
+  const extension = new AssetManagerExtension(featureFlags, runtime);
   const ownedNames = new Map<string, string>();
   let literalNameSequence = 0;
   let verifiedRemoteCache: VerifiedRemoteBinaryCache | null = null;
@@ -660,7 +679,6 @@ export function createAssetManagerComposition(
     return resource;
   }
 
-  const runtime = Scratch.vm.runtime;
   let listeningForDOMImageLifecycle = false;
   const releaseStoppedTargetDOMImageResources = (target?: TurboWarpTarget): void => {
     if (target && !runtime.targets.includes(target)) releaseDOMImageResourcesForOwner(target.id);
@@ -693,6 +711,7 @@ export function createAssetManagerComposition(
       if (!input || typeof input !== 'object' || Array.isArray(input)) {
         throw new TypeError('Project asset registration input must be an object.');
       }
+      extension.ensureRuntimeListeners();
       const hasLocator = Object.hasOwn(input, 'locator');
       if (hasLocator === Object.hasOwn(input, 'resourceId')) {
         throw new TypeError('Provide exactly one project asset locator or resourceId.');
@@ -704,6 +723,7 @@ export function createAssetManagerComposition(
       return trackRegistration(claimed, operation);
     },
     async registerEmbeddedAsset(input) {
+      extension.ensureRuntimeListeners();
       if (!input || typeof input !== 'object' || Array.isArray(input)) {
         throw new TypeError('Embedded asset registration input must be an object.');
       }
@@ -723,9 +743,9 @@ export function createAssetManagerComposition(
     },
     releaseAsset,
     releaseAll() {
-      releaseAllDOMImageResources();
-      audioGeneration++;
       const errors: unknown[] = [];
+      try { releaseAllDOMImageResources(); } catch (error) { errors.push(error); }
+      audioGeneration++;
       for (const playback of audioPlaybacks) {
         try { playback.dispose(); } catch (error) { errors.push(error); }
       }
@@ -736,6 +756,7 @@ export function createAssetManagerComposition(
           errors.push(error);
         }
       }
+      try { extension.releaseRuntimeListeners(); } catch (error) { errors.push(error); }
       if (errors.length > 0) throw new AggregateError(errors, 'Failed to release assets');
     },
     isRegistered(name) {
@@ -767,7 +788,7 @@ export function createAssetManagerComposition(
     applyToTarget(name, target) {
       return extension.setThisSpriteSkin(
         {NAME: ownedName(name)?.internal ?? name},
-        {target: target as TurboWarpTarget, runtime: Scratch.vm.runtime}
+        {target: target as TurboWarpTarget, runtime}
       );
     },
     playSound(name, options = {}) {
@@ -858,3 +879,7 @@ export function createAssetManagerComposition(
   };
   return Object.freeze(composition);
 }
+
+// Hosts can reject a legacy global-runtime factory before it creates any subscriptions.
+createAssetManagerComposition.supportsRuntimeIsolation = true as const;
+Object.defineProperty(createAssetManagerComposition, 'supportsRuntimeIsolation', {writable: false});

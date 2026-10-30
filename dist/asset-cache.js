@@ -2341,9 +2341,9 @@ function validateProjectAssetAddress(runtime, assetName, resourceIdentifier) {
 	}
 }
 var AssetManagerExtension = class {
-	constructor(featureFlags = FEATURE_FLAGS) {
-		_defineProperty(this, "runtime", Scratch.vm.runtime);
-		_defineProperty(this, "renderer", this.runtime.renderer);
+	constructor(featureFlags = FEATURE_FLAGS, runtime = Scratch.vm.runtime) {
+		_defineProperty(this, "runtime", void 0);
+		_defineProperty(this, "renderer", void 0);
 		_defineProperty(this, "externalAssets", /* @__PURE__ */ new Map());
 		_defineProperty(this, "costumeAssets", /* @__PURE__ */ new Map());
 		_defineProperty(this, "soundAssets", /* @__PURE__ */ new Map());
@@ -2393,6 +2393,12 @@ var AssetManagerExtension = class {
 			this.unbindNamedDataRegistryLifecycle = void 0;
 		});
 		_defineProperty(this, "fixedEditors", fixedInputRegistration(Scratch));
+		_defineProperty(this, "listeningForTargetStops", false);
+		_defineProperty(this, "releaseStoppedTarget", (target) => {
+			if (target && !this.runtime.targets.includes(target)) this.displayedAssets.delete(target.id);
+		});
+		this.runtime = runtime;
+		this.renderer = runtime.renderer;
 		this.featureFlags = Object.freeze({ ...featureFlags });
 		if (this.featureFlags.NAMED_ASSET_BODY_PROVIDER) {
 			this.namedBodyProviderValue = this.createNamedBodyProvider();
@@ -2401,9 +2407,19 @@ var AssetManagerExtension = class {
 			this.unbindNamedDataRegistryLifecycle = bindNamedDataRegistryLifecycle(this.runtime, registry);
 			this.startListeningForNamedBodyLifecycle();
 		}
-		this.runtime.on?.("STOP_FOR_TARGET", (target) => {
-			if (target && !this.runtime.targets.includes(target)) this.displayedAssets.delete(target.id);
-		});
+		this.ensureRuntimeListeners();
+	}
+	/** A reusable composition reattaches its own listener when registering new assets. */
+	ensureRuntimeListeners() {
+		if (this.listeningForTargetStops || !this.runtime.on) return;
+		this.runtime.on("STOP_FOR_TARGET", this.releaseStoppedTarget);
+		this.listeningForTargetStops = true;
+	}
+	/** Release only this instance's subscription, leaving other runtime owners untouched. */
+	releaseRuntimeListeners() {
+		if (!this.listeningForTargetStops || !this.runtime.off) return;
+		this.runtime.off("STOP_FOR_TARGET", this.releaseStoppedTarget);
+		this.listeningForTargetStops = false;
 	}
 	setLoadingBackdrop(args) {
 		this.loadingBackdropName = normalizeName(args.NAME);

@@ -2293,8 +2293,8 @@ function validateProjectAssetAddress(runtime, assetName, resourceIdentifier) {
 	}
 }
 var AssetManagerExtension = class {
-	runtime = Scratch.vm.runtime;
-	renderer = this.runtime.renderer;
+	runtime;
+	renderer;
 	externalAssets = /* @__PURE__ */ new Map();
 	costumeAssets = /* @__PURE__ */ new Map();
 	soundAssets = /* @__PURE__ */ new Map();
@@ -2344,7 +2344,13 @@ var AssetManagerExtension = class {
 		this.unbindNamedDataRegistryLifecycle = void 0;
 	};
 	fixedEditors = fixedInputRegistration(Scratch);
-	constructor(featureFlags = FEATURE_FLAGS) {
+	listeningForTargetStops = false;
+	releaseStoppedTarget = (target) => {
+		if (target && !this.runtime.targets.includes(target)) this.displayedAssets.delete(target.id);
+	};
+	constructor(featureFlags = FEATURE_FLAGS, runtime = Scratch.vm.runtime) {
+		this.runtime = runtime;
+		this.renderer = runtime.renderer;
 		this.featureFlags = Object.freeze({ ...featureFlags });
 		if (this.featureFlags.NAMED_ASSET_BODY_PROVIDER) {
 			this.namedBodyProviderValue = this.createNamedBodyProvider();
@@ -2353,9 +2359,19 @@ var AssetManagerExtension = class {
 			this.unbindNamedDataRegistryLifecycle = bindNamedDataRegistryLifecycle(this.runtime, registry);
 			this.startListeningForNamedBodyLifecycle();
 		}
-		this.runtime.on?.("STOP_FOR_TARGET", (target) => {
-			if (target && !this.runtime.targets.includes(target)) this.displayedAssets.delete(target.id);
-		});
+		this.ensureRuntimeListeners();
+	}
+	/** A reusable composition reattaches its own listener when registering new assets. */
+	ensureRuntimeListeners() {
+		if (this.listeningForTargetStops || !this.runtime.on) return;
+		this.runtime.on("STOP_FOR_TARGET", this.releaseStoppedTarget);
+		this.listeningForTargetStops = true;
+	}
+	/** Release only this instance's subscription, leaving other runtime owners untouched. */
+	releaseRuntimeListeners() {
+		if (!this.listeningForTargetStops || !this.runtime.off) return;
+		this.runtime.off("STOP_FOR_TARGET", this.releaseStoppedTarget);
+		this.listeningForTargetStops = false;
 	}
 	setLoadingBackdrop(args) {
 		this.loadingBackdropName = normalizeName(args.NAME);
@@ -8732,7 +8748,10 @@ async function createSessionBinaryBacking(inputValue, optionValue = {}, operatio
 //#region src/composition.ts
 function createAssetManagerComposition(featureFlags, options = {}) {
 	if (!options || typeof options !== "object" || Array.isArray(options)) throw new TypeError("Asset Cache composition options must be an object.");
-	const extension = featureFlags ? new AssetManagerExtension(featureFlags) : new AssetManagerExtension();
+	const runtimeInput = options.runtime === void 0 ? Scratch.vm.runtime : options.runtime;
+	if (options.runtime !== void 0 && (!runtimeInput || typeof runtimeInput !== "object" || !Array.isArray(runtimeInput.targets) || !runtimeInput.renderer || typeof runtimeInput.renderer !== "object")) throw new TypeError("Asset Cache composition runtime must provide targets and renderer.");
+	const runtime = runtimeInput;
+	const extension = new AssetManagerExtension(featureFlags, runtime);
 	const ownedNames = /* @__PURE__ */ new Map();
 	let literalNameSequence = 0;
 	let verifiedRemoteCache = null;
@@ -9012,7 +9031,6 @@ function createAssetManagerComposition(featureFlags, options = {}) {
 		previous?.resource.release();
 		return resource;
 	}
-	const runtime = Scratch.vm.runtime;
 	let listeningForDOMImageLifecycle = false;
 	const releaseStoppedTargetDOMImageResources = (target) => {
 		if (target && !runtime.targets.includes(target)) releaseDOMImageResourcesForOwner(target.id);
@@ -9036,6 +9054,7 @@ function createAssetManagerComposition(featureFlags, options = {}) {
 	return Object.freeze({
 		async registerProjectAsset(input) {
 			if (!input || typeof input !== "object" || Array.isArray(input)) throw new TypeError("Project asset registration input must be an object.");
+			extension.ensureRuntimeListeners();
 			const hasLocator = Object.hasOwn(input, "locator");
 			if (hasLocator === Object.hasOwn(input, "resourceId")) throw new TypeError("Provide exactly one project asset locator or resourceId.");
 			const claimed = claimName(input.name, input.nameMode ?? (hasLocator ? "literal" : "trimmed"));
@@ -9045,6 +9064,7 @@ function createAssetManagerComposition(featureFlags, options = {}) {
 			}));
 		},
 		async registerEmbeddedAsset(input) {
+			extension.ensureRuntimeListeners();
 			if (!input || typeof input !== "object" || Array.isArray(input)) throw new TypeError("Embedded asset registration input must be an object.");
 			const claimed = claimName(input.name, input.nameMode ?? "trimmed");
 			return trackRegistration(claimed, extension.registerEmbeddedAsset({
@@ -9057,9 +9077,13 @@ function createAssetManagerComposition(featureFlags, options = {}) {
 		},
 		releaseAsset,
 		releaseAll() {
-			releaseAllDOMImageResources();
-			audioGeneration++;
 			const errors = [];
+			try {
+				releaseAllDOMImageResources();
+			} catch (error) {
+				errors.push(error);
+			}
+			audioGeneration++;
 			for (const playback of audioPlaybacks) try {
 				playback.dispose();
 			} catch (error) {
@@ -9067,6 +9091,11 @@ function createAssetManagerComposition(featureFlags, options = {}) {
 			}
 			for (const name of [...ownedNames.keys()].reverse()) try {
 				releaseAsset(name);
+			} catch (error) {
+				errors.push(error);
+			}
+			try {
+				extension.releaseRuntimeListeners();
 			} catch (error) {
 				errors.push(error);
 			}
@@ -9101,7 +9130,7 @@ function createAssetManagerComposition(featureFlags, options = {}) {
 		applyToTarget(name, target) {
 			return extension.setThisSpriteSkin({ NAME: ownedName(name)?.internal ?? name }, {
 				target,
-				runtime: Scratch.vm.runtime
+				runtime
 			});
 		},
 		playSound(name, options = {}) {
@@ -9187,5 +9216,7 @@ function createAssetManagerComposition(featureFlags, options = {}) {
 		}
 	});
 }
+createAssetManagerComposition.supportsRuntimeIsolation = true;
+Object.defineProperty(createAssetManagerComposition, "supportsRuntimeIsolation", { writable: false });
 //#endregion
 export { NAMED_ASSET_BODY_NAMESPACE, NamedAssetBodyError, createAssetManagerComposition, createBinaryBundleStore, createIndexedDBBinaryObjectStore, createOpfsBinaryObjectStore, createSessionBinaryBacking, createVerifiedRemoteBinaryCache, createVerifiedRemoteCacheDatabaseName };

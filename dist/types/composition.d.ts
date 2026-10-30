@@ -65,7 +65,20 @@ export interface DOMImageResourceBindingOptions {
     readonly attribute?: 'href' | 'src';
     readonly owner?: AssetManagerCompositionTarget;
 }
+/** Public runtime boundary; rendering and asset capabilities are checked when used. */
+export interface AssetManagerCompositionRuntime {
+    readonly renderer: object;
+    readonly targets: readonly object[];
+    readonly storage?: unknown;
+    readonly stageWidth?: number;
+    on?(eventName: string, listener: (target?: AssetManagerCompositionTarget) => void): unknown;
+    off?(eventName: string, listener: (target?: AssetManagerCompositionTarget) => void): unknown;
+    requestRedraw?(): unknown;
+    getOpcodeFunction?(opcode: string): unknown;
+}
 export interface AssetManagerCompositionOptions {
+    /** Explicit owner for independent preview/player runtimes; defaults to the extension host. */
+    readonly runtime?: AssetManagerCompositionRuntime;
     readonly verifiedRemoteCache?: VerifiedRemoteBinaryCacheOptions;
     readonly binaryBundleStore?: BinaryBundleStoreOptions;
     readonly sessionBinaryBacking?: SessionBinaryBackingOptions;
@@ -112,3 +125,6 @@ export interface AssetManagerComposition {
     createSessionBinaryBacking(input: SessionBinaryBackingInput, options?: BinaryBundleOperationOptions): Promise<SessionBinaryBacking>;
 }
 export declare function createAssetManagerComposition(featureFlags?: AssetManagerFeatureFlags, options?: AssetManagerCompositionOptions): AssetManagerComposition;
+export declare namespace createAssetManagerComposition {
+    var supportsRuntimeIsolation: true;
+}
