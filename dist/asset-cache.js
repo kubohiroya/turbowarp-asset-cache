@@ -721,7 +721,7 @@ var block_definitions_default = {
 	]
 };
 //#endregion
-//#region node_modules/.pnpm/@kubohiroya+turbowarp-extension-data-editor@0.5.0_react@18.3.1/node_modules/@kubohiroya/turbowarp-extension-data-editor/dist/fixed-input-schema.js
+//#region node_modules/.pnpm/@kubohiroya+turbowarp-extension-data-editor@0.8.1_react@18.3.1/node_modules/@kubohiroya/turbowarp-extension-data-editor/dist/fixed-input-schema.js
 var numberToken = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/u;
 var invalidNumber = Object.freeze({
 	kind: "invalid",
@@ -1118,7 +1118,7 @@ function fixedInputRegistration(scratch) {
 	};
 }
 //#endregion
-//#region node_modules/.pnpm/@kubohiroya+turbowarp-named-data@0.7.0/node_modules/@kubohiroya/turbowarp-named-data/dist/composition.js
+//#region node_modules/.pnpm/@kubohiroya+turbowarp-named-data@0.8.0-rc.1/node_modules/@kubohiroya/turbowarp-named-data/dist/composition.js
 var NAMED_DATA_REGISTRY_SYMBOL_KEY = "@kubohiroya/turbowarp-named-data/registry";
 var NAMED_DATA_REGISTRY_SYMBOL = Symbol.for(NAMED_DATA_REGISTRY_SYMBOL_KEY);
 var NAMED_DATA_NAMESPACE_PATTERN = /^[a-z][a-z0-9.-]{0,63}$/u;
@@ -1158,6 +1158,18 @@ var NAMED_DATA_ERROR_CODES = [
 	"NAMED_DATA_ABORTED",
 	"NAMED_DATA_PROVIDER_RELEASED"
 ];
+/** Native byte forms retained by each provider kind; this does not enable conversion. */
+var NAMED_DATA_NATIVE_REPRESENTATIONS = Object.freeze({
+	structured: Object.freeze(["json", "yaml"]),
+	document: Object.freeze([
+		"html",
+		"markdown",
+		"yaml",
+		"json"
+	]),
+	binary: Object.freeze(["raw"]),
+	asset: Object.freeze(["raw"])
+});
 var NamedDataError = class extends Error {
 	constructor(code, message, options) {
 		super(`${code}: ${message}`, options);
@@ -1430,9 +1442,7 @@ function sameSchemaRef(left, right) {
 	return left === void 0 ? right === void 0 : right !== void 0 && left.id === right.id && left.version === right.version;
 }
 function isNativeRepresentation(kind, representation) {
-	if (kind === "structured") return representation === "json" || representation === "yaml";
-	if (kind === "document") return representation === "html" || representation === "markdown";
-	return representation === "raw";
+	return NAMED_DATA_NATIVE_REPRESENTATIONS[kind].includes(representation);
 }
 function requireNamespace(namespace) {
 	if (!isNamedDataNamespace(namespace)) throw invalidReference$1("Invalid namespace.");
