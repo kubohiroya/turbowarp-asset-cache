@@ -70,3 +70,88 @@ describe('canonical named-data registry integration', () => {
     await expect(registry?.stat(reference, 'raw', {project})).resolves.toMatchObject({byteLength: 3});
   });
 });
+
+describe('project reload', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps the named body provider, registry lifecycle, and DOM image lifecycle for the next project', async () => {
+    const listeners = new Map<string, Set<() => void>>();
+    const emit = (event: string): void => {
+      for (const listener of [...(listeners.get(event) ?? [])]) listener();
+    };
+    const runtime = {
+      renderer: {},
+      targets: [],
+      on(event: string, listener: () => void) {
+        const entries = listeners.get(event) ?? new Set<() => void>();
+        entries.add(listener);
+        listeners.set(event, entries);
+      },
+      off(event: string, listener: () => void) {
+        listeners.get(event)?.delete(listener);
+      }
+    };
+    vi.stubGlobal('Scratch', {
+      vm: {runtime},
+      extensions: {unsandboxed: true, register: vi.fn()},
+      BlockType: {COMMAND: 'command', BOOLEAN: 'boolean', REPORTER: 'reporter'},
+      ArgumentType: {STRING: 'string', NUMBER: 'number'},
+      translate: (text: string) => text
+    });
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({width: 1, height: 1, close: vi.fn()})));
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:reload');
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+
+    const extension = new AssetManagerExtension({
+      ENABLE_LIVE_ASSET_REPLACEMENT: false,
+      ENABLE_STRICT_ASSET_KIND_REPLACEMENT: false,
+      NAMED_ASSET_BODY_PROVIDER: true
+    });
+    const capability = extension.getDOMImageCapability();
+    const registry = getNamedDataRegistry(runtime);
+    const reference: NamedDataReference = {
+      namespace: 'asset',
+      name: 'payload',
+      kind: 'asset',
+      scope: 'project'
+    };
+    const project = {};
+
+    // vm.loadProject disposes the runtime and then loads the next project.
+    emit('RUNTIME_DISPOSED');
+    emit('PROJECT_LOADED');
+
+    await extension.registerEmbeddedAsset({
+      name: 'payload',
+      bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      mimeType: 'image/png'
+    });
+
+    expect(registry?.canResolve(reference, 'raw')).toBe(true);
+    await expect(registry?.stat(reference, 'raw', {project})).resolves.toMatchObject({byteLength: 8});
+
+    // The registry lifecycle binding clears session providers when the project stops.
+    const releaseSessionProvider = vi.fn();
+    registry?.registerProvider({
+      namespace: 'reload-probe',
+      kind: 'asset',
+      canResolve: () => true,
+      stat: vi.fn(),
+      openBody: vi.fn(),
+      release: releaseSessionProvider
+    } as never, {lifetime: 'session'});
+    emit('PROJECT_STOP_ALL');
+    await vi.waitFor(() => expect(releaseSessionProvider).toHaveBeenCalledWith('shutdown'));
+
+    const resource = await capability.resolveDOMImageResource('payload');
+    emit('PROJECT_STOP_ALL');
+    expect(resource.released).toBe(true);
+
+    extension.dispose();
+    expect(registry?.canResolve(reference, 'raw')).toBe(false);
+    expect([...listeners.values()].reduce((count, entries) => count + entries.size, 0)).toBe(0);
+
+    createObjectURL.mockRestore();
+    revokeObjectURL.mockRestore();
+  });
+});

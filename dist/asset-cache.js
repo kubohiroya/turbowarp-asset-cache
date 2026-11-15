@@ -2383,6 +2383,13 @@ function validateProjectAssetAddress(runtime, assetName, resourceIdentifier) {
 	}
 }
 var AssetManagerExtension = class {
+	unregisterNamedBodyProvider() {
+		this.namedBodyProviderValue?.release("shutdown");
+		this.namedBodyProviderRegistration?.unregister();
+		this.namedBodyProviderRegistration = void 0;
+		this.unbindNamedDataRegistryLifecycle?.();
+		this.unbindNamedDataRegistryLifecycle = void 0;
+	}
 	constructor(featureFlags = FEATURE_FLAGS, runtime = Scratch.vm.runtime) {
 		_defineProperty(this, "runtime", void 0);
 		_defineProperty(this, "renderer", void 0);
@@ -2420,19 +2427,8 @@ var AssetManagerExtension = class {
 		_defineProperty(this, "releaseAllDOMImageResourcesForLifecycle", () => {
 			this.releaseAllDOMImageResources();
 		});
-		_defineProperty(this, "releaseDOMImageResourcesForRuntimeDispose", () => {
-			this.releaseAllDOMImageResources();
-			this.stopListeningForDOMImageLifecycle();
-		});
 		_defineProperty(this, "releaseNamedBodySnapshotsForLifecycle", () => {
 			this.releaseOpenNamedBodySnapshots();
-		});
-		_defineProperty(this, "unregisterNamedBodyProviderForRuntimeDispose", () => {
-			this.namedBodyProviderValue?.release("shutdown");
-			this.namedBodyProviderRegistration?.unregister();
-			this.namedBodyProviderRegistration = void 0;
-			this.unbindNamedDataRegistryLifecycle?.();
-			this.unbindNamedDataRegistryLifecycle = void 0;
 		});
 		_defineProperty(this, "fixedEditors", fixedInputRegistration(Scratch));
 		_defineProperty(this, "listeningForTargetStops", false);
@@ -2529,9 +2525,17 @@ var AssetManagerExtension = class {
 			blocks
 		};
 	}
-	/** Release only this optional editor registration; runtime data remains unchanged. */
+	/**
+	* Final teardown of this extension instance. Project reloads emit
+	* RUNTIME_DISPOSED but keep the instance, so that event only clears
+	* per-project state; registrations and listeners are removed here.
+	*/
 	dispose() {
 		this.fixedEditors.dispose();
+		this.unregisterNamedBodyProvider();
+		this.releaseAllDOMImageResources();
+		this.stopListeningForDOMImageLifecycle();
+		this.releaseRuntimeListeners();
 	}
 	/**
 	* Exposes the stock extension registry through a host-neutral DOM image
@@ -3616,14 +3620,14 @@ var AssetManagerExtension = class {
 		this.listeningForDOMImageLifecycle = true;
 		this.runtime.on("PROJECT_STOP_ALL", this.releaseAllDOMImageResourcesForLifecycle);
 		this.runtime.on("PROJECT_LOADED", this.releaseAllDOMImageResourcesForLifecycle);
-		this.runtime.on("RUNTIME_DISPOSED", this.releaseDOMImageResourcesForRuntimeDispose);
+		this.runtime.on("RUNTIME_DISPOSED", this.releaseAllDOMImageResourcesForLifecycle);
 	}
 	stopListeningForDOMImageLifecycle() {
 		if (!this.listeningForDOMImageLifecycle || !this.runtime.off) return;
 		this.listeningForDOMImageLifecycle = false;
 		this.runtime.off("PROJECT_STOP_ALL", this.releaseAllDOMImageResourcesForLifecycle);
 		this.runtime.off("PROJECT_LOADED", this.releaseAllDOMImageResourcesForLifecycle);
-		this.runtime.off("RUNTIME_DISPOSED", this.releaseDOMImageResourcesForRuntimeDispose);
+		this.runtime.off("RUNTIME_DISPOSED", this.releaseAllDOMImageResourcesForLifecycle);
 	}
 	createNamedBodyProvider() {
 		let providerReleased = false;
@@ -3724,14 +3728,14 @@ var AssetManagerExtension = class {
 		this.listeningForNamedBodyLifecycle = true;
 		this.runtime.on("PROJECT_STOP_ALL", this.releaseNamedBodySnapshotsForLifecycle);
 		this.runtime.on("PROJECT_LOADED", this.releaseNamedBodySnapshotsForLifecycle);
-		this.runtime.on("RUNTIME_DISPOSED", this.unregisterNamedBodyProviderForRuntimeDispose);
+		this.runtime.on("RUNTIME_DISPOSED", this.releaseNamedBodySnapshotsForLifecycle);
 	}
 	stopListeningForNamedBodyLifecycle() {
 		if (!this.listeningForNamedBodyLifecycle || !this.runtime.off) return;
 		this.listeningForNamedBodyLifecycle = false;
 		this.runtime.off("PROJECT_STOP_ALL", this.releaseNamedBodySnapshotsForLifecycle);
 		this.runtime.off("PROJECT_LOADED", this.releaseNamedBodySnapshotsForLifecycle);
-		this.runtime.off("RUNTIME_DISPOSED", this.unregisterNamedBodyProviderForRuntimeDispose);
+		this.runtime.off("RUNTIME_DISPOSED", this.releaseNamedBodySnapshotsForLifecycle);
 	}
 	async ensureExternalAssetSkin(asset, name) {
 		asset.mimeType = normalizeMimeType(asset.mimeType, asset.url || name);

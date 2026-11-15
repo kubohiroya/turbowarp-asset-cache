@@ -493,12 +493,27 @@ describe('project-local assets', () => {
     expect(beforeReload.released).toBe(true);
 
     const beforeDispose = await capability.resolveDOMImageResource('Portrait');
+    const listenerCount = (eventName: string): number =>
+      runtimeListeners.get(eventName)?.size ?? 0;
+    const lifecycleListenerCounts = [
+      listenerCount('PROJECT_STOP_ALL'),
+      listenerCount('PROJECT_LOADED'),
+      listenerCount('RUNTIME_DISPOSED')
+    ];
     emitRuntime('RUNTIME_DISPOSED');
     expect(beforeDispose.released).toBe(true);
-    expect(runtimeListeners.get('PROJECT_STOP_ALL')?.size ?? 0).toBe(0);
-    expect(runtimeListeners.get('PROJECT_LOADED')?.size ?? 0).toBe(0);
-    expect(runtimeListeners.get('RUNTIME_DISPOSED')?.size ?? 0).toBe(0);
+    // Every project load disposes the runtime; the next project keeps the lifecycle handling.
+    expect([
+      listenerCount('PROJECT_STOP_ALL'),
+      listenerCount('PROJECT_LOADED'),
+      listenerCount('RUNTIME_DISPOSED')
+    ]).toEqual(lifecycleListenerCounts);
     expect(revokeObjectURL).toHaveBeenCalledTimes(5);
+
+    extension.dispose();
+    expect(listenerCount('PROJECT_STOP_ALL')).toBe(0);
+    expect(listenerCount('PROJECT_LOADED')).toBe(0);
+    expect(listenerCount('RUNTIME_DISPOSED')).toBe(0);
 
     createObjectURL.mockRestore();
     revokeObjectURL.mockRestore();

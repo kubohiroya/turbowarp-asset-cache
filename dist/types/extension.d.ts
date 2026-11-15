@@ -120,9 +120,8 @@ export declare class AssetManagerExtension {
     private listeningForNamedBodyLifecycle;
     private listeningForDOMImageLifecycle;
     private readonly releaseAllDOMImageResourcesForLifecycle;
-    private readonly releaseDOMImageResourcesForRuntimeDispose;
     private readonly releaseNamedBodySnapshotsForLifecycle;
-    private readonly unregisterNamedBodyProviderForRuntimeDispose;
+    private unregisterNamedBodyProvider;
     private readonly fixedEditors;
     private listeningForTargetStops;
     private readonly releaseStoppedTarget;
@@ -147,7 +146,11 @@ export declare class AssetManagerExtension {
         color3: "#2f46aa";
         blocks: Record<string, unknown>[];
     };
-    /** Release only this optional editor registration; runtime data remains unchanged. */
+    /**
+     * Final teardown of this extension instance. Project reloads emit
+     * RUNTIME_DISPOSED but keep the instance, so that event only clears
+     * per-project state; registrations and listeners are removed here.
+     */
     dispose(): void;
     /**
      * Exposes the stock extension registry through a host-neutral DOM image
