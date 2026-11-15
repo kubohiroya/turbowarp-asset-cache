@@ -89,23 +89,47 @@ interface OptionalHost {
   vm?: {runtime?: {on?: (event: string, listener: () => void) => void; off?: (event: string, listener: () => void) => void}};
 }
 
-/** Per-instance, idempotent registration. Legacy hosts never acquire the fixed capability. */
+/**
+ * Per-instance, idempotent registration. Legacy hosts never acquire the fixed capability.
+ *
+ * Every project load disposes the runtime, which releases the registrations, but the extension
+ * stays loaded for the next project: the same opcodes are registered again once that project has
+ * loaded. Only `dispose()` is final.
+ */
 export function fixedInputRegistration(scratch: unknown) {
   const host = scratch as OptionalHost;
   let active: unknown;
-  let removers: (() => void)[] = [];
+  let lastOpcodes: readonly string[] | undefined;
+  const removers: (() => void)[] = [];
   let disposed = false;
-  const dispose = () => {
-    host.vm?.runtime?.off?.('RUNTIME_DISPOSED', shutdown);
+  let released = false;
+  let listening = false;
+  const release = () => {
     for (const remove of removers.splice(0).reverse()) remove();
     active = undefined;
   };
-  const shutdown = () => {disposed = true; dispose();};
-  return {
+  const runtimeDisposed = () => {release(); released = true;};
+  const projectLoaded = () => {
+    if (!released || lastOpcodes === undefined) return;
+    released = false;
+    // A failure leaves nothing registered; it must not break the project load.
+    try {registration.ensure(lastOpcodes);} catch {/* the next getInfo retries */}
+  };
+  const shutdown = () => {
+    disposed = true; released = false;
+    if (listening) {
+      host.vm?.runtime?.off?.('RUNTIME_DISPOSED', runtimeDisposed);
+      host.vm?.runtime?.off?.('PROJECT_LOADED', projectLoaded);
+      listening = false;
+    }
+    release();
+  };
+  const registration = {
     ensure(opcodes: readonly string[]) {
       const api = host.gui?.blockEditors;
       if (disposed || api === active) return;
-      dispose();
+      release();
+      released = false; lastOpcodes = [...opcodes];
       if (api?.apiVersion !== 1 || typeof api.registerFixedInputEditor !== 'function') return;
       try {
         for (const definition of fixedInputEditors) {
@@ -116,9 +140,14 @@ export function fixedInputRegistration(scratch: unknown) {
           }
         }
         active = api;
-        host.vm?.runtime?.on?.('RUNTIME_DISPOSED', shutdown);
-      } catch (error) {dispose(); throw error;}
+        if (!listening) {
+          host.vm?.runtime?.on?.('RUNTIME_DISPOSED', runtimeDisposed);
+          host.vm?.runtime?.on?.('PROJECT_LOADED', projectLoaded);
+          listening = true;
+        }
+      } catch (error) {release(); throw error;}
     },
     dispose: shutdown
   };
+  return registration;
 }

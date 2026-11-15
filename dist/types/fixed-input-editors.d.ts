@@ -3,7 +3,13 @@ import { type TextStyleProperty } from './text-style.js';
 /** New edits preserve the candidate token; existing aliases are display projections only. */
 export declare function styleBinding(property: TextStyleProperty): FixedInputBinding;
 export declare const fixedInputEditors: readonly FixedInputEditorOptions[];
-/** Per-instance, idempotent registration. Legacy hosts never acquire the fixed capability. */
+/**
+ * Per-instance, idempotent registration. Legacy hosts never acquire the fixed capability.
+ *
+ * Every project load disposes the runtime, which releases the registrations, but the extension
+ * stays loaded for the next project: the same opcodes are registered again once that project has
+ * loaded. Only `dispose()` is final.
+ */
 export declare function fixedInputRegistration(scratch: unknown): {
     ensure(opcodes: readonly string[]): void;
     dispose: () => void;
