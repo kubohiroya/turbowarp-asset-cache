@@ -1069,26 +1069,53 @@ var fixedInputEditors = [{
 		}
 	}]
 }];
-/** Per-instance, idempotent registration. Legacy hosts never acquire the fixed capability. */
+/**
+* Per-instance, idempotent registration. Legacy hosts never acquire the fixed capability.
+*
+* Every project load disposes the runtime, which releases the registrations, but the extension
+* stays loaded for the next project: the same opcodes are registered again once that project has
+* loaded. Only `dispose()` is final.
+*/
 function fixedInputRegistration(scratch) {
 	const host = scratch;
 	let active;
-	let removers = [];
+	let lastOpcodes;
+	const removers = [];
 	let disposed = false;
-	const dispose = () => {
-		host.vm?.runtime?.off?.("RUNTIME_DISPOSED", shutdown);
+	let released = false;
+	let listening = false;
+	const release = () => {
 		for (const remove of removers.splice(0).reverse()) remove();
 		active = void 0;
 	};
+	const runtimeDisposed = () => {
+		release();
+		released = true;
+	};
+	const projectLoaded = () => {
+		if (!released || lastOpcodes === void 0) return;
+		released = false;
+		try {
+			registration.ensure(lastOpcodes);
+		} catch {}
+	};
 	const shutdown = () => {
 		disposed = true;
-		dispose();
+		released = false;
+		if (listening) {
+			host.vm?.runtime?.off?.("RUNTIME_DISPOSED", runtimeDisposed);
+			host.vm?.runtime?.off?.("PROJECT_LOADED", projectLoaded);
+			listening = false;
+		}
+		release();
 	};
-	return {
+	const registration = {
 		ensure(opcodes) {
 			const api = host.gui?.blockEditors;
 			if (disposed || api === active) return;
-			dispose();
+			release();
+			released = false;
+			lastOpcodes = [...opcodes];
 			if (api?.apiVersion !== 1 || typeof api.registerFixedInputEditor !== "function") return;
 			try {
 				for (const definition of fixedInputEditors) if (definition.opcodes.every((opcode) => opcodes.includes(opcode))) {
@@ -1097,14 +1124,19 @@ function fixedInputRegistration(scratch) {
 					removers.push(remove);
 				}
 				active = api;
-				host.vm?.runtime?.on?.("RUNTIME_DISPOSED", shutdown);
+				if (!listening) {
+					host.vm?.runtime?.on?.("RUNTIME_DISPOSED", runtimeDisposed);
+					host.vm?.runtime?.on?.("PROJECT_LOADED", projectLoaded);
+					listening = true;
+				}
 			} catch (error) {
-				dispose();
+				release();
 				throw error;
 			}
 		},
 		dispose: shutdown
 	};
+	return registration;
 }
 //#endregion
 //#region node_modules/.pnpm/@kubohiroya+turbowarp-named-data@0.8.0/node_modules/@kubohiroya/turbowarp-named-data/dist/composition.js
