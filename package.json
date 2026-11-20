@@ -1,6 +1,6 @@
 {
   "name": "@kubohiroya/turbowarp-asset-cache",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "A browser-local image, audio, and runtime-text asset cache for TurboWarp projects.",
   "author": {
     "name": "Hiroya Kubo",
@@ -94,5 +94,55 @@
     "extension",
     "assets",
     "indexeddb"
-  ]
+  ],
+  "turbowarpExtension": {
+    "resourceDeclaration": {
+      "schemaVersion": 1,
+      "resources": [
+        {
+          "type": "network",
+          "usage": "conditional",
+          "purpose": {
+            "en": "Download external image, audio and text assets",
+            "ja": "外部の画像・音声・テキスト素材を取得する"
+          },
+          "condition": {
+            "en": "When registering an external URL",
+            "ja": "外部URLの素材を登録する場合"
+          },
+          "data": {
+            "direction": "download",
+            "content": {
+              "en": "Requested asset URLs and downloaded media/text",
+              "ja": "指定した素材URLへの要求と、取得する画像・音声・テキスト"
+            }
+          }
+        },
+        {
+          "type": "storage",
+          "usage": "conditional",
+          "purpose": {
+            "en": "Read, write and delete cached assets",
+            "ja": "素材のキャッシュを読み書き・削除する"
+          },
+          "condition": {
+            "en": "When using persistent cache operations",
+            "ja": "永続キャッシュ機能を使う場合"
+          }
+        },
+        {
+          "type": "audio-output",
+          "usage": "conditional",
+          "purpose": {
+            "en": "Play registered audio assets",
+            "ja": "登録済みの音声素材を再生する"
+          },
+          "condition": {
+            "en": "When playing a sound or voice asset",
+            "ja": "音声素材を再生する場合"
+          }
+        }
+      ]
+    }
+  }
 }
