@@ -88,14 +88,14 @@ SVG入力は既定で拒否します。remote binaryのcache entryは、保存�
 versionを付けたnpm packageにも、同じレビュー済みビルドが入っています。
 
 ```bash
-pnpm add --save-exact @kubohiroya/turbowarp-asset-cache@0.9.2
+pnpm add --save-exact @kubohiroya/turbowarp-asset-cache@0.10.0
 ```
 
 `node_modules/@kubohiroya/turbowarp-asset-cache/dist/asset-cache.js`を読み込むか、version固定の
 CDN URLを使います。
 
 ```text
-https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-cache@0.9.2/dist/asset-cache.js
+https://cdn.jsdelivr.net/npm/@kubohiroya/turbowarp-asset-cache@0.10.0/dist/asset-cache.js
 ```
 
 ## クイックスタート
