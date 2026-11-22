@@ -99,7 +99,7 @@ export declare class AssetManagerExtension {
     private readonly successfulRegistrationVersions;
     private readonly registrationCancellationVersions;
     private readonly registrationCommits;
-    private readonly committedCacheRecords;
+    private persistentStore;
     protected readonly featureFlags: AssetManagerFeatureFlags;
     private loadingBackdropName;
     private loadingCostumes?;
@@ -217,8 +217,9 @@ export declare class AssetManagerExtension {
     private removeRegisteredAsset;
     private disposeRegisteredAsset;
     private externalMediaKind;
-    private openDatabase;
-    private transaction;
+    /** The page's one owner of the `tw-asset-cache` database, shared with every other copy of this package. */
+    private store;
+    private cacheLookup;
     private cacheGet;
     private cachePut;
     private cacheDelete;

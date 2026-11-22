@@ -1,3 +1,4 @@
+import {openIndexedDB, requestResult, transactionComplete} from './indexeddb.js';
 import {
   StoryCacheCatalog,
   type VerifiedRemoteStoryCacheDeleteResult,
@@ -438,23 +439,6 @@ function takeBytes(value: unknown, transferOwnership: boolean): OwnedBytes {
   );
 }
 
-function requestResult<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed.'));
-  });
-}
-
-function transactionComplete(transaction: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () =>
-      reject(transaction.error ?? new Error('IndexedDB transaction failed.'));
-    transaction.onabort = () =>
-      reject(transaction.error ?? new Error('IndexedDB transaction was aborted.'));
-  });
-}
-
 function metadataIsStructurallyValid(metadata: unknown): metadata is CacheMetadata {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return false;
   const candidate = metadata as Partial<CacheMetadata>;
@@ -590,97 +574,62 @@ class IndexedDBVerifiedRemoteStore {
   }
 
   async #open(): Promise<IDBDatabase> {
-    if (!this.#indexedDB || typeof this.#indexedDB.open !== 'function') {
-      throw cacheError('ASSET_CACHE_INDEXEDDB_UNAVAILABLE', 'IndexedDB is not available.');
-    }
-    let request: IDBOpenDBRequest;
-    try {
-      request = this.#indexedDB.open(this.#databaseName, DATABASE_VERSION);
-    } catch (error) {
-      throw cacheError('ASSET_CACHE_INDEXEDDB_UNAVAILABLE', 'IndexedDB could not be opened.', error);
-    }
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const rejectOnce = (error: Error) => {
-        if (settled) return;
-        settled = true;
-        reject(error);
-      };
-      request.onupgradeneeded = () => {
-        const database = request.result;
+    const database = await openIndexedDB({
+      factory: this.#indexedDB,
+      name: this.#databaseName,
+      version: DATABASE_VERSION,
+      upgrade(database, transaction) {
         if (!database.objectStoreNames.contains(ENTRY_STORE)) {
           database.createObjectStore(ENTRY_STORE, {keyPath: 'key'});
         }
-        let metadata: IDBObjectStore;
-        if (!database.objectStoreNames.contains(METADATA_STORE)) {
-          metadata = database.createObjectStore(METADATA_STORE, {keyPath: 'key'});
-        } else {
-          metadata = request.transaction!.objectStore(METADATA_STORE);
-        }
+        const metadata = database.objectStoreNames.contains(METADATA_STORE)
+          ? transaction.objectStore(METADATA_STORE)
+          : database.createObjectStore(METADATA_STORE, {keyPath: 'key'});
         if (!metadata.indexNames.contains('lastAccessedAt')) {
           metadata.createIndex('lastAccessedAt', 'lastAccessedAt');
         }
         if (!database.objectStoreNames.contains(INFO_STORE)) {
           database.createObjectStore(INFO_STORE, {keyPath: 'key'});
         }
-      };
-      request.onsuccess = () => {
-        const database = request.result;
-        if (settled) {
-          database.close();
-          return;
-        }
-        settled = true;
-        database.onversionchange = () => database.close();
-        if (!this.#cacheIdentity || this.#identityStored) {
-          resolve(database);
-          return;
-        }
-        let transaction: IDBTransaction;
-        try {
-          transaction = database.transaction(INFO_STORE, 'readwrite');
-          const record: CacheInfoRecord = {
-            key: 'identity',
-            formatVersion: CACHE_FORMAT_VERSION,
-            id: this.#cacheIdentity.id,
-            label: this.#cacheIdentity.label,
-            databaseName: this.#cacheIdentity.databaseName,
-            lastOpenedAt: this.#now()
-          };
-          transaction.objectStore(INFO_STORE).put(record);
-        } catch (error) {
-          database.close();
-          reject(
-            cacheError(
-              'ASSET_CACHE_IDENTITY_WRITE_FAILED',
-              'Cache identity metadata could not be written.',
-              error
-            )
-          );
-          return;
-        }
-        transactionComplete(transaction).then(
-          () => {
-            this.#identityStored = true;
-            resolve(database);
-          },
-          (error) => {
-            database.close();
-            reject(error);
-          }
-        );
-      };
-      request.onerror = () =>
-        rejectOnce(
-          cacheError(
-            'ASSET_CACHE_INDEXEDDB_UNAVAILABLE',
-            'IndexedDB open request failed.',
-            request.error
-          )
-        );
-      request.onblocked = () =>
-        rejectOnce(cacheError('ASSET_CACHE_INDEXEDDB_BLOCKED', 'IndexedDB upgrade was blocked.'));
+      },
+      errors: {
+        unavailable: () => cacheError('ASSET_CACHE_INDEXEDDB_UNAVAILABLE', 'IndexedDB is not available.'),
+        openThrew: (cause) =>
+          cacheError('ASSET_CACHE_INDEXEDDB_UNAVAILABLE', 'IndexedDB could not be opened.', cause),
+        requestFailed: (cause) =>
+          cacheError('ASSET_CACHE_INDEXEDDB_UNAVAILABLE', 'IndexedDB open request failed.', cause),
+        blocked: () => cacheError('ASSET_CACHE_INDEXEDDB_BLOCKED', 'IndexedDB upgrade was blocked.')
+      }
     });
+    if (!this.#cacheIdentity || this.#identityStored) return database;
+    let transaction: IDBTransaction;
+    try {
+      transaction = database.transaction(INFO_STORE, 'readwrite');
+      const record: CacheInfoRecord = {
+        key: 'identity',
+        formatVersion: CACHE_FORMAT_VERSION,
+        id: this.#cacheIdentity.id,
+        label: this.#cacheIdentity.label,
+        databaseName: this.#cacheIdentity.databaseName,
+        lastOpenedAt: this.#now()
+      };
+      transaction.objectStore(INFO_STORE).put(record);
+    } catch (error) {
+      database.close();
+      throw cacheError(
+        'ASSET_CACHE_IDENTITY_WRITE_FAILED',
+        'Cache identity metadata could not be written.',
+        error
+      );
+    }
+    try {
+      await transactionComplete(transaction);
+    } catch (error) {
+      database.close();
+      throw error;
+    }
+    this.#identityStored = true;
+    return database;
   }
 
   async get(key: string): Promise<CacheRecord | null> {

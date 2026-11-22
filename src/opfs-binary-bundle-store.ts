@@ -1,3 +1,4 @@
+import {openIndexedDB, requestResult, transactionComplete} from './indexeddb.js';
 import type {
   BinaryBundleFileRegistration,
   BinaryBundleKeyInput,
@@ -167,20 +168,6 @@ function integrityHex(integrity: string): string {
     .map((value) => value.toString(16).padStart(2, '0')).join('');
 }
 
-function requestResult<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed.'));
-  });
-}
-
-function transactionComplete(transaction: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed.'));
-    transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB transaction aborted.'));
-  });
-}
 
 function mappedMetadataError(error: unknown): Error {
   if (error instanceof Error && 'code' in error && typeof error.code === 'string') return error;
@@ -280,37 +267,27 @@ export function createOpfsBinaryBundleStore(
 
   async function openDatabase(): Promise<IDBDatabase> {
     if (released) throw storeError('ASSET_BINARY_BUNDLE_RELEASED', 'Binary bundle store was released.');
-    if (!indexedDB?.open) {
-      throw storeError('ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE', 'IndexedDB metadata is unavailable.');
-    }
-    let request: IDBOpenDBRequest;
-    try {
-      request = indexedDB.open(options.databaseName, DATABASE_VERSION);
-    } catch (error) {
-      throw mappedMetadataError(error);
-    }
-    return new Promise((resolve, reject) => {
-      request.onupgradeneeded = () => {
-        const database = request.result;
-        if (!database.objectStoreNames.contains(MANIFEST_STORE)) {
-          database.createObjectStore(MANIFEST_STORE, {keyPath: 'key'});
+    return await openIndexedDB({
+      factory: indexedDB,
+      name: options.databaseName,
+      version: DATABASE_VERSION,
+      upgrade(database) {
+        for (const [name, keyPath] of [
+          [MANIFEST_STORE, 'key'],
+          [INTENT_STORE, 'token'],
+          [STATE_STORE, 'key'],
+          [DELETION_STORE, 'key']
+        ] as const) {
+          if (!database.objectStoreNames.contains(name)) database.createObjectStore(name, {keyPath});
         }
-        if (!database.objectStoreNames.contains(INTENT_STORE)) {
-          database.createObjectStore(INTENT_STORE, {keyPath: 'token'});
-        }
-        if (!database.objectStoreNames.contains(STATE_STORE)) {
-          database.createObjectStore(STATE_STORE, {keyPath: 'key'});
-        }
-        if (!database.objectStoreNames.contains(DELETION_STORE)) {
-          database.createObjectStore(DELETION_STORE, {keyPath: 'key'});
-        }
-      };
-      request.onsuccess = () => {
-        request.result.onversionchange = () => request.result.close();
-        resolve(request.result);
-      };
-      request.onerror = () => reject(mappedMetadataError(request.error));
-      request.onblocked = () => reject(storeError('ASSET_BINARY_OPFS_OPEN_FAILED', 'OPFS metadata open was blocked.'));
+      },
+      errors: {
+        unavailable: () =>
+          storeError('ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE', 'IndexedDB metadata is unavailable.'),
+        openThrew: (cause) => mappedMetadataError(cause),
+        requestFailed: (cause) => mappedMetadataError(cause),
+        blocked: () => storeError('ASSET_BINARY_OPFS_OPEN_FAILED', 'OPFS metadata open was blocked.')
+      }
     });
   }
 
