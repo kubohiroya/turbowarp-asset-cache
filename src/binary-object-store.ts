@@ -602,47 +602,30 @@ export function createIndexedDBBinaryObjectStore(
 
   const open = (): Promise<IDBDatabase> => {
     assertActive(released);
-    if (!indexedDB?.open) {
-      throw objectError('ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE', 'IndexedDB is unavailable.');
-    }
-    let request: IDBOpenDBRequest;
-    try {
-      request = indexedDB.open(databaseName, 1);
-    } catch (error) {
-      throw objectError('ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE', 'IndexedDB open failed.', error);
-    }
-    return new Promise((resolve, reject) => {
-      request.onupgradeneeded = () => {
-        if (!request.result.objectStoreNames.contains('objects')) {
-          request.result.createObjectStore('objects', {keyPath: 'key'});
+    return openIndexedDB({
+      factory: indexedDB,
+      name: databaseName,
+      version: 1,
+      upgrade(database) {
+        if (!database.objectStoreNames.contains('objects')) {
+          database.createObjectStore('objects', {keyPath: 'key'});
         }
-      };
-      request.onsuccess = () => {
-        request.result.onversionchange = () => request.result.close();
-        resolve(request.result);
-      };
-      request.onerror = () => reject(objectError(
-        'ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE',
-        'IndexedDB open failed.',
-        request.error
-      ));
-      request.onblocked = () => reject(objectError(
-        'ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE',
-        'IndexedDB open was blocked.'
-      ));
+      },
+      errors: {
+        unavailable: () =>
+          objectError('ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE', 'IndexedDB is unavailable.'),
+        openThrew: (cause) =>
+          objectError('ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE', 'IndexedDB open failed.', cause),
+        requestFailed: (cause) =>
+          objectError('ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE', 'IndexedDB open failed.', cause),
+        blocked: () =>
+          objectError('ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE', 'IndexedDB open was blocked.')
+      }
     });
   };
 
-  const complete = (transaction: IDBTransaction): Promise<void> => new Promise((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed.'));
-    transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB transaction aborted.'));
-  });
-
-  const result = <T>(request: IDBRequest<T>): Promise<T> => new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed.'));
-  });
+  const complete = transactionComplete;
+  const result = requestResult;
 
   const store: BinaryObjectStore = {
     kind: 'indexeddb',
@@ -731,4 +714,5 @@ export function createIndexedDBBinaryObjectStore(
     }
   };
   return Object.freeze(store);
-}
+}import {openIndexedDB, requestResult, transactionComplete} from './indexeddb.js';
+

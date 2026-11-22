@@ -1,3 +1,5 @@
+import {openIndexedDB, requestResult, transactionComplete} from './indexeddb.js';
+
 const CATALOG_DATABASE_NAME = 'tw-kamishibai-cache-catalog-v1';
 const CATALOG_DATABASE_VERSION = 2;
 const STORY_STORE = 'stories';
@@ -72,22 +74,6 @@ function catalogError(code: string, message: string, cause?: unknown): Error {
   return error;
 }
 
-function requestResult<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed.'));
-  });
-}
-
-function transactionComplete(transaction: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () =>
-      reject(transaction.error ?? new Error('IndexedDB transaction failed.'));
-    transaction.onabort = () =>
-      reject(transaction.error ?? new Error('IndexedDB transaction was aborted.'));
-  });
-}
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
@@ -179,23 +165,11 @@ export class StoryCacheCatalog {
   }
 
   async #open(): Promise<IDBDatabase> {
-    if (!this.#indexedDB || typeof this.#indexedDB.open !== 'function') {
-      throw catalogError('ASSET_CACHE_CATALOG_UNAVAILABLE', 'Story cache catalog is unavailable.');
-    }
-    let request: IDBOpenDBRequest;
-    try {
-      request = this.#indexedDB.open(CATALOG_DATABASE_NAME, CATALOG_DATABASE_VERSION);
-    } catch (error) {
-      throw catalogError(
-        'ASSET_CACHE_CATALOG_UNAVAILABLE',
-        'Story cache catalog could not be opened.',
-        error
-      );
-    }
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      request.onupgradeneeded = () => {
-        const database = request.result;
+    return await openIndexedDB({
+      factory: this.#indexedDB,
+      name: CATALOG_DATABASE_NAME,
+      version: CATALOG_DATABASE_VERSION,
+      upgrade(database) {
         if (!database.objectStoreNames.contains(STORY_STORE)) {
           const store = database.createObjectStore(STORY_STORE, {keyPath: 'key'});
           store.createIndex('lastAccessedAt', 'lastAccessedAt');
@@ -205,33 +179,15 @@ export class StoryCacheCatalog {
           leases.createIndex('databaseName', 'databaseName');
           leases.createIndex('expiresAt', 'expiresAt');
         }
-      };
-      request.onsuccess = () => {
-        const database = request.result;
-        if (settled) {
-          database.close();
-          return;
-        }
-        settled = true;
-        database.onversionchange = () => database.close();
-        resolve(database);
-      };
-      request.onerror = () => {
-        if (settled) return;
-        settled = true;
-        reject(
-          catalogError(
-            'ASSET_CACHE_CATALOG_UNAVAILABLE',
-            'Story cache catalog open request failed.',
-            request.error
-          )
-        );
-      };
-      request.onblocked = () => {
-        if (settled) return;
-        settled = true;
-        reject(catalogError('ASSET_CACHE_CATALOG_BLOCKED', 'Story cache catalog open was blocked.'));
-      };
+      },
+      errors: {
+        unavailable: () => catalogError('ASSET_CACHE_CATALOG_UNAVAILABLE', 'Story cache catalog is unavailable.'),
+        openThrew: (cause) =>
+          catalogError('ASSET_CACHE_CATALOG_UNAVAILABLE', 'Story cache catalog could not be opened.', cause),
+        requestFailed: (cause) =>
+          catalogError('ASSET_CACHE_CATALOG_UNAVAILABLE', 'Story cache catalog open request failed.', cause),
+        blocked: () => catalogError('ASSET_CACHE_CATALOG_BLOCKED', 'Story cache catalog open was blocked.')
+      }
     });
   }
 

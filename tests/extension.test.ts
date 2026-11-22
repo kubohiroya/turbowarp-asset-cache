@@ -361,6 +361,25 @@ describe('project-local assets', () => {
     });
   });
 
+  it('shares one persistent cache owner between extension copies', async () => {
+    const first = new AssetManagerExtension();
+    const second = new AssetManagerExtension();
+    const firstStore = (first as unknown as {store(): unknown}).store();
+    expect((second as unknown as {store(): unknown}).store()).toBe(firstStore);
+    const store = firstStore as {
+      commit(name: string, record: unknown): void;
+      clear(): Promise<void>;
+      committed(name: string): unknown;
+    };
+    store.commit('shared', {name: 'shared', url: 'https://example.com/a.png', mimeType: 'image/png',
+      data: new ArrayBuffer(0), cachedAt: 1, generation: 1});
+    const lookup = (extension: AssetManagerExtension) =>
+      (extension as unknown as {cacheLookup(name: string): Promise<unknown>}).cacheLookup('shared');
+    await expect(lookup(second)).resolves.toMatchObject({url: 'https://example.com/a.png'});
+    store.commit('shared', null);
+    await expect(lookup(first)).resolves.toBeNull();
+  });
+
   it('keeps the legacy opcode hidden and exposes the resource registration opcode', () => {
     const extension = new AssetManagerExtension();
     const blocks = extension.getInfo().blocks;
@@ -1280,7 +1299,7 @@ describe('project-local assets', () => {
     expect(cachePut).toHaveBeenCalledOnce();
     expect(cachePut).toHaveBeenCalledWith(expect.objectContaining({
       url: 'https://example.com/fast.png',
-      generation: 2
+      generation: expect.any(Number)
     }));
   });
 

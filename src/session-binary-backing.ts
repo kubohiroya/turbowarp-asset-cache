@@ -1,3 +1,4 @@
+import {openIndexedDB, requestResult, transactionComplete} from './indexeddb.js';
 import {
   createBinaryBundleStore,
   type BinaryBundleBackendWarning,
@@ -663,23 +664,6 @@ async function readSourceAsset(
   return files;
 }
 
-function requestResult<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed.'));
-  });
-}
-
-function transactionComplete(transaction: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () =>
-      reject(transaction.error ?? new Error('IndexedDB transaction failed.'));
-    transaction.onabort = () =>
-      reject(transaction.error ?? new Error('IndexedDB transaction was aborted.'));
-  });
-}
-
 function isDomException(error: unknown, name: string): boolean {
   return error instanceof DOMException && error.name === name;
 }
@@ -713,81 +697,53 @@ async function openDatabase(
   signal?: AbortSignal
 ): Promise<IDBDatabase> {
   assertNotAborted(signal);
-  const indexedDB = options.indexedDB;
-  if (!indexedDB || typeof indexedDB.open !== 'function') {
-    throw sessionError(
-      'ASSET_SESSION_BINARY_INDEXEDDB_UNAVAILABLE',
-      'IndexedDB is not available for session binary backing.'
-    );
-  }
-  let request: IDBOpenDBRequest;
-  try {
-    request = indexedDB.open(options.databaseName, DATABASE_VERSION);
-  } catch (error) {
-    throw sessionError(
-      'ASSET_SESSION_BINARY_INDEXEDDB_UNAVAILABLE',
-      'The session binary IndexedDB database could not be opened.',
-      error
-    );
-  }
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const abort = () => rejectOnce(abortError(signal?.reason));
-    const rejectOnce = (error: Error) => {
-      if (settled) return;
-      settled = true;
-      signal?.removeEventListener('abort', abort);
-      reject(error);
-    };
-    signal?.addEventListener('abort', abort, {once: true});
-    if (signal?.aborted) abort();
-    request.onupgradeneeded = () => {
-      const database = request.result;
-      let sessions: IDBObjectStore;
-      if (!database.objectStoreNames.contains(SESSION_STORE)) {
-        sessions = database.createObjectStore(SESSION_STORE, {keyPath: 'sessionId'});
-      } else {
-        sessions = request.transaction!.objectStore(SESSION_STORE);
-      }
+  return await openIndexedDB({
+    factory: options.indexedDB,
+    name: options.databaseName,
+    version: DATABASE_VERSION,
+    signal,
+    abortError: (reason) => abortError(reason),
+    // A session holds its connection for its whole life and reports a closed connection as
+    // ASSET_SESSION_BINARY_CONNECTION_CLOSED, so it keeps the connection through a version change.
+    closeOnVersionChange: false,
+    upgrade(database, transaction) {
+      const sessions = database.objectStoreNames.contains(SESSION_STORE)
+        ? transaction.objectStore(SESSION_STORE)
+        : database.createObjectStore(SESSION_STORE, {keyPath: 'sessionId'});
       if (!sessions.indexNames.contains(EXPIRES_AT_INDEX)) {
         sessions.createIndex(EXPIRES_AT_INDEX, 'expiresAt');
       }
-      let bundles: IDBObjectStore;
-      if (!database.objectStoreNames.contains(BUNDLE_STORE)) {
-        bundles = database.createObjectStore(BUNDLE_STORE, {
-          keyPath: ['sessionId', 'namespace', 'name']
-        });
-      } else {
-        bundles = request.transaction!.objectStore(BUNDLE_STORE);
-      }
+      const bundles = database.objectStoreNames.contains(BUNDLE_STORE)
+        ? transaction.objectStore(BUNDLE_STORE)
+        : database.createObjectStore(BUNDLE_STORE, {keyPath: ['sessionId', 'namespace', 'name']});
       if (!bundles.indexNames.contains(SESSION_ID_INDEX)) {
         bundles.createIndex(SESSION_ID_INDEX, 'sessionId');
       }
-    };
-    request.onsuccess = () => {
-      if (settled) {
-        request.result.close();
-        return;
-      }
-      settled = true;
-      signal?.removeEventListener('abort', abort);
-      resolve(request.result);
-    };
-    request.onerror = () =>
-      rejectOnce(
+    },
+    errors: {
+      unavailable: () =>
+        sessionError(
+          'ASSET_SESSION_BINARY_INDEXEDDB_UNAVAILABLE',
+          'IndexedDB is not available for session binary backing.'
+        ),
+      openThrew: (cause) =>
+        sessionError(
+          'ASSET_SESSION_BINARY_INDEXEDDB_UNAVAILABLE',
+          'The session binary IndexedDB database could not be opened.',
+          cause
+        ),
+      requestFailed: (cause) =>
         sessionError(
           'ASSET_SESSION_BINARY_INDEXEDDB_UNAVAILABLE',
           'The session binary IndexedDB open request failed.',
-          request.error
-        )
-      );
-    request.onblocked = () =>
-      rejectOnce(
+          cause
+        ),
+      blocked: () =>
         sessionError(
           'ASSET_SESSION_BINARY_INDEXEDDB_BLOCKED',
           'The session binary IndexedDB open request was blocked.'
         )
-      );
+    }
   });
 }
 

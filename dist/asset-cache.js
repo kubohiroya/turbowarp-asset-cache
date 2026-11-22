@@ -26,6 +26,206 @@ var extensionConfig = {
 	blockIconURI: `data:image/svg+xml,${encodeURIComponent("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 48 48\"><rect x=\"4\" y=\"8\" width=\"40\" height=\"32\" rx=\"6\" fill=\"#59C059\"/><path d=\"M14 20h12l3 3h7v12a2 2 0 0 1-2 2H14a2 2 0 0 1-2-2V22a2 2 0 0 1 2-2z\" fill=\"#fff\"/><path d=\"M24 17v8M21 22l3 3 3-3\" fill=\"none\" stroke=\"#59C059\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>")}`
 };
 //#endregion
+//#region src/indexeddb.ts
+function openIndexedDB(options) {
+	const { factory, errors, signal } = options;
+	if (!factory || typeof factory.open !== "function") return Promise.reject(errors.unavailable());
+	if (signal?.aborted) return Promise.reject(abortErrorFor(options, signal.reason));
+	let request;
+	try {
+		request = factory.open(options.name, options.version);
+	} catch (error) {
+		return Promise.reject(errors.openThrew(error));
+	}
+	return new Promise((resolve, reject) => {
+		let settled = false;
+		const abort = () => rejectOnce(abortErrorFor(options, signal?.reason));
+		const finish = () => {
+			settled = true;
+			signal?.removeEventListener("abort", abort);
+		};
+		const rejectOnce = (error) => {
+			if (settled) return;
+			finish();
+			reject(error);
+		};
+		signal?.addEventListener("abort", abort, { once: true });
+		request.onupgradeneeded = () => {
+			options.upgrade(request.result, request.transaction);
+		};
+		request.onsuccess = () => {
+			const database = request.result;
+			if (settled) {
+				database.close();
+				return;
+			}
+			const arrivalError = options.rejectArrival?.() ?? null;
+			if (arrivalError) {
+				database.close();
+				rejectOnce(arrivalError);
+				return;
+			}
+			finish();
+			if (options.closeOnVersionChange !== false) database.onversionchange = () => {
+				database.close();
+				options.onClosedByVersionChange?.(database);
+			};
+			resolve(database);
+		};
+		request.onerror = () => rejectOnce(errors.requestFailed(request.error));
+		request.onblocked = () => rejectOnce(errors.blocked());
+	});
+}
+function abortErrorFor(options, reason) {
+	if (!options.abortError) throw new TypeError("openIndexedDB needs abortError with a signal.");
+	return options.abortError(reason);
+}
+/** Resolve with a request's result. */
+function requestResult(request) {
+	return new Promise((resolve, reject) => {
+		request.onsuccess = () => resolve(request.result);
+		request.onerror = () => reject(request.error ?? /* @__PURE__ */ new Error("IndexedDB request failed."));
+	});
+}
+//#endregion
+//#region src/persistent-asset-store.ts
+/**
+* The single owner of the `tw-asset-cache` IndexedDB database in a page.
+*
+* Every copy of this package that runs in the page — the standalone extension, and each extension
+* bundle that composes the Asset Manager from `./composition` — shares one store through a
+* `Symbol.for` registry on the global object. The store holds the one database connection, the
+* records the page committed, and the write generations, so one copy never answers from a record
+* another copy already replaced or deleted, and generations never collide between copies.
+*/
+var PERSISTENT_ASSET_STORE_KEY = Symbol.for("@kubohiroya/turbowarp-asset-cache/persistent-store");
+var DATABASE_VERSION = 1;
+var STORE_NAME = "assets";
+/** Create a store. Callers in a page use {@link acquirePersistentAssetStore} instead. */
+function createPersistentAssetStore(indexedDBSource = () => globalThis.indexedDB) {
+	const committedRecords = /* @__PURE__ */ new Map();
+	let generation = 0;
+	let connection = null;
+	let openedDatabase = null;
+	function open() {
+		connection ?? (connection = openIndexedDB({
+			factory: indexedDBSource(),
+			name: "tw-asset-cache",
+			version: DATABASE_VERSION,
+			upgrade(database) {
+				if (!database.objectStoreNames.contains(STORE_NAME)) database.createObjectStore(STORE_NAME, { keyPath: "name" });
+			},
+			onClosedByVersionChange: (database) => {
+				if (openedDatabase === database) {
+					openedDatabase = null;
+					connection = null;
+				}
+			},
+			errors: {
+				unavailable: () => /* @__PURE__ */ new Error("IndexedDB is unavailable, so the asset cache cannot be used."),
+				openThrew: (cause) => new Error("The asset cache database could not be opened.", { cause }),
+				requestFailed: (cause) => new Error("The asset cache database could not be opened.", { cause }),
+				blocked: () => /* @__PURE__ */ new Error("The asset cache database is blocked by another page.")
+			}
+		}).then((database) => {
+			openedDatabase = database;
+			return database;
+		}));
+		const pending = connection;
+		pending.catch(() => {
+			if (connection === pending) connection = null;
+		});
+		return pending;
+	}
+	async function run(mode, action) {
+		return requestResult(action((await open()).transaction(STORE_NAME, mode).objectStore(STORE_NAME)));
+	}
+	return Object.freeze({
+		formatVersion: 1,
+		committed(name) {
+			return committedRecords.has(name) ? committedRecords.get(name) ?? null : void 0;
+		},
+		commit(name, record) {
+			committedRecords.set(name, record);
+		},
+		nextGeneration() {
+			generation += 1;
+			return generation;
+		},
+		async get(name) {
+			return await run("readonly", (store) => store.get(name)) ?? null;
+		},
+		async put(record) {
+			await run("readwrite", (store) => store.put(record));
+		},
+		async delete(name) {
+			await run("readwrite", (store) => store.delete(name));
+			committedRecords.set(name, null);
+		},
+		async clear() {
+			await run("readwrite", (store) => store.clear());
+			committedRecords.clear();
+		},
+		async restoreIfGeneration(name, writtenGeneration, previous) {
+			const database = await open();
+			await new Promise((resolve, reject) => {
+				const transaction = database.transaction(STORE_NAME, "readwrite");
+				const store = transaction.objectStore(STORE_NAME);
+				const request = store.get(name);
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					if (request.result?.generation !== writtenGeneration) return;
+					if (previous) store.put(previous);
+					else store.delete(name);
+				};
+				transaction.oncomplete = () => resolve();
+				transaction.onerror = () => reject(transaction.error);
+				transaction.onabort = () => reject(transaction.error);
+			});
+		},
+		close() {
+			const pending = connection;
+			connection = null;
+			openedDatabase = null;
+			pending?.then((database) => database.close(), () => void 0);
+		}
+	});
+}
+function isPersistentAssetStore(value) {
+	if (!value || typeof value !== "object") return false;
+	const candidate = value;
+	return candidate.formatVersion === 1 && [
+		"committed",
+		"commit",
+		"nextGeneration",
+		"get",
+		"put",
+		"delete",
+		"clear",
+		"restoreIfGeneration",
+		"close"
+	].every((method) => typeof candidate[method] === "function");
+}
+/**
+* The page's one store. The first copy of this package to ask creates it; every later copy, from
+* this version or another, receives the same one.
+*/
+function acquirePersistentAssetStore(globalObject = globalThis) {
+	const existing = globalObject[PERSISTENT_ASSET_STORE_KEY];
+	if (existing !== void 0) {
+		if (!isPersistentAssetStore(existing)) throw new Error("The page already holds an asset cache store this version cannot share.");
+		return existing;
+	}
+	const store = createPersistentAssetStore(() => globalObject.indexedDB);
+	Object.defineProperty(globalObject, PERSISTENT_ASSET_STORE_KEY, {
+		value: store,
+		configurable: false,
+		enumerable: false,
+		writable: false
+	});
+	return store;
+}
+//#endregion
 //#region src/audio-output.ts
 /** Media volume handles attenuation and fades; this shared graph adds amplification. */
 var shared;
@@ -1933,9 +2133,6 @@ var EXTENSION_ID = extensionConfig.id;
 var EXTENSION_VERSION = "0.14.0";
 var EXTENSION_DOCS_URI = extensionConfig.docsURI;
 var BLOCK_ICON_URI = extensionConfig.blockIconURI;
-var DB_NAME = "tw-asset-cache";
-var DB_VERSION = 1;
-var STORE_NAME = "assets";
 var STAGE_RESOURCE_NAME = "@stage";
 async function sha256Digest(bytes) {
 	const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes).buffer);
@@ -2406,7 +2603,7 @@ var AssetManagerExtension = class {
 		_defineProperty(this, "successfulRegistrationVersions", /* @__PURE__ */ new Map());
 		_defineProperty(this, "registrationCancellationVersions", /* @__PURE__ */ new Map());
 		_defineProperty(this, "registrationCommits", /* @__PURE__ */ new Map());
-		_defineProperty(this, "committedCacheRecords", /* @__PURE__ */ new Map());
+		_defineProperty(this, "persistentStore", null);
 		_defineProperty(this, "featureFlags", void 0);
 		_defineProperty(this, "loadingBackdropName", "");
 		_defineProperty(this, "lastAssetErrorType", "");
@@ -2735,11 +2932,9 @@ var AssetManagerExtension = class {
 	async deleteCachedAsset(args) {
 		const name = normalizeName(args.NAME);
 		await this.cacheDelete(name);
-		this.committedCacheRecords.set(name, null);
 	}
 	async deleteAllCachedAssets() {
 		await this.cacheClear();
-		this.committedCacheRecords.clear();
 	}
 	isLoaded(args) {
 		return this.assetRegistry.has(normalizeName(args.NAME));
@@ -3003,7 +3198,7 @@ var AssetManagerExtension = class {
 	}
 	async registerExternalAsset(url, name) {
 		const token = this.beginRegistration(name);
-		const record = url ? await this.fetchExternalAsset(url, name) : this.committedCacheRecords.has(name) ? this.committedCacheRecords.get(name) ?? null : await this.cacheGet(name);
+		const record = url ? await this.fetchExternalAsset(url, name) : await this.cacheLookup(name);
 		if (!this.isRegistrationCancellationCurrent(name, token)) return;
 		if (!record) {
 			const candidates = suggestNames(name, this.assetRegistry.keys());
@@ -3112,18 +3307,18 @@ var AssetManagerExtension = class {
 			let previousCached;
 			let nextCached;
 			if (cacheRecord) {
-				previousCached = this.committedCacheRecords.has(name) ? this.committedCacheRecords.get(name) ?? null : await this.cacheGet(name);
+				previousCached = await this.cacheLookup(name);
 				if (!this.isRegistrationCancellationCurrent(name, token)) {
 					this.disposeRegisteredAsset(prepared);
 					return;
 				}
 				nextCached = {
 					...cacheRecord,
-					generation: token.version
+					generation: this.store().nextGeneration()
 				};
 				await this.cachePut(nextCached);
 				if (!this.isRegistrationCancellationCurrent(name, token)) {
-					await this.restoreCacheIfGeneration(name, token.version, previousCached);
+					await this.restoreCacheIfGeneration(name, nextCached.generation, previousCached);
 					this.disposeRegisteredAsset(prepared);
 					return;
 				}
@@ -3131,16 +3326,16 @@ var AssetManagerExtension = class {
 			try {
 				await this.commitPreparedAssetNow(name, kind, prepared, token);
 			} catch (error) {
-				if (cacheRecord) await this.restoreCacheIfGeneration(name, token.version, previousCached ?? null);
+				if (nextCached) await this.restoreCacheIfGeneration(name, nextCached.generation, previousCached ?? null);
 				throw error;
 			}
 			this.invalidateDOMImageResources(name);
 			if (!this.isRegistrationCancellationCurrent(name, token)) {
-				if (cacheRecord) await this.restoreCacheIfGeneration(name, token.version, previousCached ?? null);
+				if (nextCached) await this.restoreCacheIfGeneration(name, nextCached.generation, previousCached ?? null);
 				return;
 			}
 			this.successfulRegistrationVersions.set(name, token.version);
-			if (nextCached) this.committedCacheRecords.set(name, nextCached);
+			if (nextCached) this.store().commit(name, nextCached);
 		});
 		this.registrationCommits.set(name, commit);
 		try {
@@ -3297,52 +3492,29 @@ var AssetManagerExtension = class {
 		if (mimeType.startsWith("audio/")) return "audio";
 		return "unknown";
 	}
-	openDatabase() {
-		return new Promise((resolve, reject) => {
-			const request = indexedDB.open(DB_NAME, DB_VERSION);
-			request.onupgradeneeded = () => {
-				if (!request.result.objectStoreNames.contains(STORE_NAME)) request.result.createObjectStore(STORE_NAME, { keyPath: "name" });
-			};
-			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => reject(request.error);
-		});
+	/** The page's one owner of the `tw-asset-cache` database, shared with every other copy of this package. */
+	store() {
+		this.persistentStore ?? (this.persistentStore = acquirePersistentAssetStore());
+		return this.persistentStore;
 	}
-	async transaction(mode, action) {
-		const database = await this.openDatabase();
-		return new Promise((resolve, reject) => {
-			const request = action(database.transaction(STORE_NAME, mode).objectStore(STORE_NAME));
-			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => reject(request.error);
-		});
+	async cacheLookup(name) {
+		const committed = this.store().committed(name);
+		return committed === void 0 ? await this.cacheGet(name) : committed;
 	}
 	async cacheGet(name) {
-		return await this.transaction("readonly", (store) => store.get(name)) ?? null;
+		return await this.store().get(name);
 	}
 	async cachePut(record) {
-		await this.transaction("readwrite", (store) => store.put(record));
+		await this.store().put(record);
 	}
 	async cacheDelete(name) {
-		await this.transaction("readwrite", (store) => store.delete(name));
+		await this.store().delete(name);
 	}
 	async cacheClear() {
-		await this.transaction("readwrite", (store) => store.clear());
+		await this.store().clear();
 	}
 	async restoreCacheIfGeneration(name, generation, previous) {
-		const database = await this.openDatabase();
-		await new Promise((resolve, reject) => {
-			const transaction = database.transaction(STORE_NAME, "readwrite");
-			const store = transaction.objectStore(STORE_NAME);
-			const request = store.get(name);
-			request.onerror = () => reject(request.error);
-			request.onsuccess = () => {
-				if (request.result?.generation !== generation) return;
-				if (previous) store.put(previous);
-				else store.delete(name);
-			};
-			transaction.oncomplete = () => resolve();
-			transaction.onerror = () => reject(transaction.error);
-			transaction.onabort = () => reject(transaction.error);
-		});
+		await this.store().restoreIfGeneration(name, generation, previous);
 	}
 	async fetchExternalAsset(url, name) {
 		const response = await fetch(url);

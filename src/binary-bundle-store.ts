@@ -1,3 +1,4 @@
+import {openIndexedDB, requestResult, transactionComplete} from './indexeddb.js';
 import {
   createOpfsBinaryObjectStore,
   type BinaryStorageBackendPolicy,
@@ -436,22 +437,6 @@ function storedRecordIsValid(
   });
 }
 
-function requestResult<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed.'));
-  });
-}
-
-function transactionComplete(transaction: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () =>
-      reject(transaction.error ?? new Error('IndexedDB transaction failed.'));
-    transaction.onabort = () =>
-      reject(transaction.error ?? new Error('IndexedDB transaction was aborted.'));
-  });
-}
 
 function mappedStoreError(error: unknown, operation: string, signal?: AbortSignal): Error {
   if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
@@ -612,70 +597,46 @@ function createIndexedDBBinaryBundleStore(options: BinaryBundleStoreOptions = {}
 
   async function openDatabase(): Promise<IDBDatabase> {
     ensureActive();
-    if (!indexedDB || typeof indexedDB.open !== 'function') {
-      throw bundleError(
-        'ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE',
-        'IndexedDB is not available for the binary bundle store.'
-      );
-    }
-    let request: IDBOpenDBRequest;
-    try {
-      request = indexedDB.open(databaseName, DATABASE_VERSION);
-    } catch (error) {
-      throw bundleError(
-        'ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE',
-        'The binary bundle IndexedDB database could not be opened.',
-        error
-      );
-    }
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const rejectOnce = (error: Error) => {
-        if (settled) return;
-        settled = true;
-        reject(error);
-      };
-      request.onupgradeneeded = () => {
-        const database = request.result;
+    return await openIndexedDB({
+      factory: indexedDB,
+      name: databaseName,
+      version: DATABASE_VERSION,
+      upgrade(database, transaction) {
         if (!database.objectStoreNames.contains(BUNDLE_STORE)) {
           database.createObjectStore(BUNDLE_STORE, {keyPath: 'key'});
         }
-        let metadata: IDBObjectStore;
-        if (!database.objectStoreNames.contains(METADATA_STORE)) {
-          metadata = database.createObjectStore(METADATA_STORE, {keyPath: 'key'});
-        } else {
-          metadata = request.transaction!.objectStore(METADATA_STORE);
-        }
+        const metadata = database.objectStoreNames.contains(METADATA_STORE)
+          ? transaction.objectStore(METADATA_STORE)
+          : database.createObjectStore(METADATA_STORE, {keyPath: 'key'});
         if (!metadata.indexNames.contains(LAST_ACCESSED_INDEX)) {
           metadata.createIndex(LAST_ACCESSED_INDEX, 'lastAccessedAt');
         }
-      };
-      request.onsuccess = () => {
-        const database = request.result;
-        if (settled || released) {
-          database.close();
-          rejectOnce(releasedError());
-          return;
-        }
-        settled = true;
-        database.onversionchange = () => database.close();
-        resolve(database);
-      };
-      request.onerror = () =>
-        rejectOnce(
+      },
+      rejectArrival: () => (released ? releasedError() : null),
+      errors: {
+        unavailable: () =>
+          bundleError(
+            'ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE',
+            'IndexedDB is not available for the binary bundle store.'
+          ),
+        openThrew: (cause) =>
+          bundleError(
+            'ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE',
+            'The binary bundle IndexedDB database could not be opened.',
+            cause
+          ),
+        requestFailed: (cause) =>
           bundleError(
             'ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE',
             'The binary bundle IndexedDB open request failed.',
-            request.error
-          )
-        );
-      request.onblocked = () =>
-        rejectOnce(
+            cause
+          ),
+        blocked: () =>
           bundleError(
             'ASSET_BINARY_BUNDLE_INDEXEDDB_BLOCKED',
             'The binary bundle IndexedDB open request was blocked.'
           )
-        );
+      }
     });
   }
 

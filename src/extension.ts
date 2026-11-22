@@ -1,3 +1,8 @@
+import {
+  acquirePersistentAssetStore,
+  type PersistentAssetRecord,
+  type PersistentAssetStore
+} from './persistent-asset-store.js';
 import {extensionConfig} from './config.js';
 import {createBrowserAudioPlayback, validateAudioPlaybackOptions, type AssetManagerAudioSource, type AssetManagerAudioPlayback, type AssetManagerAudioPlaybackOptions} from './audio-playback.js';
 import definitions from './block-definitions.json' with {type: 'json'};
@@ -56,9 +61,6 @@ export const EXTENSION_VERSION = '0.14.0';
 export const EXTENSION_DOCS_URI = extensionConfig.docsURI;
 export const BLOCK_ICON_URI = extensionConfig.blockIconURI;
 
-const DB_NAME = 'tw-asset-cache';
-const DB_VERSION = 1;
-const STORE_NAME = 'assets';
 const STAGE_RESOURCE_NAME = '@stage';
 
 type BlockArgs = Record<string, unknown>;
@@ -80,14 +82,7 @@ interface DefinitionBlock {
   hideFromPalette?: boolean;
 }
 
-interface AssetRecord {
-  name: string;
-  url: string;
-  mimeType: string;
-  data: ArrayBuffer;
-  cachedAt: number;
-  generation?: number;
-}
+type AssetRecord = PersistentAssetRecord;
 
 export interface EmbeddedAssetBytesInput {
   name: unknown;
@@ -833,7 +828,7 @@ export class AssetManagerExtension {
   private readonly successfulRegistrationVersions = new Map<string, number>();
   private readonly registrationCancellationVersions = new Map<string, number>();
   private readonly registrationCommits = new Map<string, Promise<void>>();
-  private readonly committedCacheRecords = new Map<string, AssetRecord | null>();
+  private persistentStore: PersistentAssetStore | null = null;
   protected readonly featureFlags: AssetManagerFeatureFlags;
   private loadingBackdropName = '';
   declare private loadingCostumes?: string[];
@@ -1250,12 +1245,10 @@ export class AssetManagerExtension {
   async deleteCachedAsset(args: BlockArgs): Promise<void> {
     const name = normalizeName(args.NAME);
     await this.cacheDelete(name);
-    this.committedCacheRecords.set(name, null);
   }
 
   async deleteAllCachedAssets(): Promise<void> {
     await this.cacheClear();
-    this.committedCacheRecords.clear();
   }
 
   isLoaded(args: BlockArgs): boolean {
@@ -1630,9 +1623,7 @@ export class AssetManagerExtension {
     const token = this.beginRegistration(name);
     const record = url
       ? await this.fetchExternalAsset(url, name)
-      : this.committedCacheRecords.has(name)
-      ? this.committedCacheRecords.get(name) ?? null
-      : await this.cacheGet(name);
+      : await this.cacheLookup(name);
     if (!this.isRegistrationCancellationCurrent(name, token)) return;
     if (!record) {
       const candidates = suggestNames(name, this.assetRegistry.keys());
@@ -1784,17 +1775,15 @@ export class AssetManagerExtension {
       let previousCached: AssetRecord | null | undefined;
       let nextCached: AssetRecord | undefined;
       if (cacheRecord) {
-        previousCached = this.committedCacheRecords.has(name)
-          ? this.committedCacheRecords.get(name) ?? null
-          : await this.cacheGet(name);
+        previousCached = await this.cacheLookup(name);
         if (!this.isRegistrationCancellationCurrent(name, token)) {
           this.disposeRegisteredAsset(prepared);
           return;
         }
-        nextCached = {...cacheRecord, generation: token.version};
+        nextCached = {...cacheRecord, generation: this.store().nextGeneration()};
         await this.cachePut(nextCached);
         if (!this.isRegistrationCancellationCurrent(name, token)) {
-          await this.restoreCacheIfGeneration(name, token.version, previousCached);
+          await this.restoreCacheIfGeneration(name, nextCached.generation!, previousCached);
           this.disposeRegisteredAsset(prepared);
           return;
         }
@@ -1803,20 +1792,20 @@ export class AssetManagerExtension {
       try {
         await this.commitPreparedAssetNow(name, kind, prepared, token);
       } catch (error) {
-        if (cacheRecord) {
-          await this.restoreCacheIfGeneration(name, token.version, previousCached ?? null);
+        if (nextCached) {
+          await this.restoreCacheIfGeneration(name, nextCached.generation!, previousCached ?? null);
         }
         throw error;
       }
       this.invalidateDOMImageResources(name);
       if (!this.isRegistrationCancellationCurrent(name, token)) {
-        if (cacheRecord) {
-          await this.restoreCacheIfGeneration(name, token.version, previousCached ?? null);
+        if (nextCached) {
+          await this.restoreCacheIfGeneration(name, nextCached.generation!, previousCached ?? null);
         }
         return;
       }
       this.successfulRegistrationVersions.set(name, token.version);
-      if (nextCached) this.committedCacheRecords.set(name, nextCached);
+      if (nextCached) this.store().commit(name, nextCached);
     });
     this.registrationCommits.set(name, commit);
     try {
@@ -2040,45 +2029,31 @@ export class AssetManagerExtension {
     return 'unknown';
   }
 
-  private openDatabase(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-      request.onupgradeneeded = () => {
-        if (!request.result.objectStoreNames.contains(STORE_NAME)) {
-          request.result.createObjectStore(STORE_NAME, {keyPath: 'name'});
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
+  /** The page's one owner of the `tw-asset-cache` database, shared with every other copy of this package. */
+  private store(): PersistentAssetStore {
+    this.persistentStore ??= acquirePersistentAssetStore();
+    return this.persistentStore;
   }
 
-  private async transaction<T>(
-    mode: IDBTransactionMode,
-    action: (store: IDBObjectStore) => IDBRequest<T>
-  ): Promise<T> {
-    const database = await this.openDatabase();
-    return new Promise((resolve, reject) => {
-      const request = action(database.transaction(STORE_NAME, mode).objectStore(STORE_NAME));
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
+  private async cacheLookup(name: string): Promise<AssetRecord | null> {
+    const committed = this.store().committed(name);
+    return committed === undefined ? await this.cacheGet(name) : committed;
   }
 
   private async cacheGet(name: string): Promise<AssetRecord | null> {
-    return (await this.transaction<AssetRecord | undefined>('readonly', (store) => store.get(name))) ?? null;
+    return await this.store().get(name);
   }
 
   private async cachePut(record: AssetRecord): Promise<void> {
-    await this.transaction('readwrite', (store) => store.put(record));
+    await this.store().put(record);
   }
 
   private async cacheDelete(name: string): Promise<void> {
-    await this.transaction('readwrite', (store) => store.delete(name));
+    await this.store().delete(name);
   }
 
   private async cacheClear(): Promise<void> {
-    await this.transaction('readwrite', (store) => store.clear());
+    await this.store().clear();
   }
 
   private async restoreCacheIfGeneration(
@@ -2086,22 +2061,7 @@ export class AssetManagerExtension {
     generation: number,
     previous: AssetRecord | null
   ): Promise<void> {
-    const database = await this.openDatabase();
-    await new Promise<void>((resolve, reject) => {
-      const transaction = database.transaction(STORE_NAME, 'readwrite');
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.get(name);
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        const current = request.result as AssetRecord | undefined;
-        if (current?.generation !== generation) return;
-        if (previous) store.put(previous);
-        else store.delete(name);
-      };
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(transaction.error);
-    });
+    await this.store().restoreIfGeneration(name, generation, previous);
   }
 
   private async fetchExternalAsset(url: string, name: string): Promise<AssetRecord> {

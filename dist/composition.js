@@ -1,3 +1,212 @@
+//#region src/indexeddb.ts
+function openIndexedDB(options) {
+	const { factory, errors, signal } = options;
+	if (!factory || typeof factory.open !== "function") return Promise.reject(errors.unavailable());
+	if (signal?.aborted) return Promise.reject(abortErrorFor(options, signal.reason));
+	let request;
+	try {
+		request = factory.open(options.name, options.version);
+	} catch (error) {
+		return Promise.reject(errors.openThrew(error));
+	}
+	return new Promise((resolve, reject) => {
+		let settled = false;
+		const abort = () => rejectOnce(abortErrorFor(options, signal?.reason));
+		const finish = () => {
+			settled = true;
+			signal?.removeEventListener("abort", abort);
+		};
+		const rejectOnce = (error) => {
+			if (settled) return;
+			finish();
+			reject(error);
+		};
+		signal?.addEventListener("abort", abort, { once: true });
+		request.onupgradeneeded = () => {
+			options.upgrade(request.result, request.transaction);
+		};
+		request.onsuccess = () => {
+			const database = request.result;
+			if (settled) {
+				database.close();
+				return;
+			}
+			const arrivalError = options.rejectArrival?.() ?? null;
+			if (arrivalError) {
+				database.close();
+				rejectOnce(arrivalError);
+				return;
+			}
+			finish();
+			if (options.closeOnVersionChange !== false) database.onversionchange = () => {
+				database.close();
+				options.onClosedByVersionChange?.(database);
+			};
+			resolve(database);
+		};
+		request.onerror = () => rejectOnce(errors.requestFailed(request.error));
+		request.onblocked = () => rejectOnce(errors.blocked());
+	});
+}
+function abortErrorFor(options, reason) {
+	if (!options.abortError) throw new TypeError("openIndexedDB needs abortError with a signal.");
+	return options.abortError(reason);
+}
+/** Resolve with a request's result. */
+function requestResult(request) {
+	return new Promise((resolve, reject) => {
+		request.onsuccess = () => resolve(request.result);
+		request.onerror = () => reject(request.error ?? /* @__PURE__ */ new Error("IndexedDB request failed."));
+	});
+}
+/** Resolve when a transaction commits; reject when it fails or aborts. */
+function transactionComplete(transaction) {
+	return new Promise((resolve, reject) => {
+		transaction.oncomplete = () => resolve();
+		transaction.onerror = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction failed."));
+		transaction.onabort = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction was aborted."));
+	});
+}
+//#endregion
+//#region src/persistent-asset-store.ts
+/**
+* The single owner of the `tw-asset-cache` IndexedDB database in a page.
+*
+* Every copy of this package that runs in the page — the standalone extension, and each extension
+* bundle that composes the Asset Manager from `./composition` — shares one store through a
+* `Symbol.for` registry on the global object. The store holds the one database connection, the
+* records the page committed, and the write generations, so one copy never answers from a record
+* another copy already replaced or deleted, and generations never collide between copies.
+*/
+var PERSISTENT_ASSET_STORE_KEY = Symbol.for("@kubohiroya/turbowarp-asset-cache/persistent-store");
+var PERSISTENT_ASSET_DATABASE_NAME = "tw-asset-cache";
+var DATABASE_VERSION$4 = 1;
+var STORE_NAME = "assets";
+/** Create a store. Callers in a page use {@link acquirePersistentAssetStore} instead. */
+function createPersistentAssetStore(indexedDBSource = () => globalThis.indexedDB) {
+	const committedRecords = /* @__PURE__ */ new Map();
+	let generation = 0;
+	let connection = null;
+	let openedDatabase = null;
+	function open() {
+		connection ??= openIndexedDB({
+			factory: indexedDBSource(),
+			name: PERSISTENT_ASSET_DATABASE_NAME,
+			version: DATABASE_VERSION$4,
+			upgrade(database) {
+				if (!database.objectStoreNames.contains(STORE_NAME)) database.createObjectStore(STORE_NAME, { keyPath: "name" });
+			},
+			onClosedByVersionChange: (database) => {
+				if (openedDatabase === database) {
+					openedDatabase = null;
+					connection = null;
+				}
+			},
+			errors: {
+				unavailable: () => /* @__PURE__ */ new Error("IndexedDB is unavailable, so the asset cache cannot be used."),
+				openThrew: (cause) => new Error("The asset cache database could not be opened.", { cause }),
+				requestFailed: (cause) => new Error("The asset cache database could not be opened.", { cause }),
+				blocked: () => /* @__PURE__ */ new Error("The asset cache database is blocked by another page.")
+			}
+		}).then((database) => {
+			openedDatabase = database;
+			return database;
+		});
+		const pending = connection;
+		pending.catch(() => {
+			if (connection === pending) connection = null;
+		});
+		return pending;
+	}
+	async function run(mode, action) {
+		return requestResult(action((await open()).transaction(STORE_NAME, mode).objectStore(STORE_NAME)));
+	}
+	return Object.freeze({
+		formatVersion: 1,
+		committed(name) {
+			return committedRecords.has(name) ? committedRecords.get(name) ?? null : void 0;
+		},
+		commit(name, record) {
+			committedRecords.set(name, record);
+		},
+		nextGeneration() {
+			generation += 1;
+			return generation;
+		},
+		async get(name) {
+			return await run("readonly", (store) => store.get(name)) ?? null;
+		},
+		async put(record) {
+			await run("readwrite", (store) => store.put(record));
+		},
+		async delete(name) {
+			await run("readwrite", (store) => store.delete(name));
+			committedRecords.set(name, null);
+		},
+		async clear() {
+			await run("readwrite", (store) => store.clear());
+			committedRecords.clear();
+		},
+		async restoreIfGeneration(name, writtenGeneration, previous) {
+			const database = await open();
+			await new Promise((resolve, reject) => {
+				const transaction = database.transaction(STORE_NAME, "readwrite");
+				const store = transaction.objectStore(STORE_NAME);
+				const request = store.get(name);
+				request.onerror = () => reject(request.error);
+				request.onsuccess = () => {
+					if (request.result?.generation !== writtenGeneration) return;
+					if (previous) store.put(previous);
+					else store.delete(name);
+				};
+				transaction.oncomplete = () => resolve();
+				transaction.onerror = () => reject(transaction.error);
+				transaction.onabort = () => reject(transaction.error);
+			});
+		},
+		close() {
+			const pending = connection;
+			connection = null;
+			openedDatabase = null;
+			pending?.then((database) => database.close(), () => void 0);
+		}
+	});
+}
+function isPersistentAssetStore(value) {
+	if (!value || typeof value !== "object") return false;
+	const candidate = value;
+	return candidate.formatVersion === 1 && [
+		"committed",
+		"commit",
+		"nextGeneration",
+		"get",
+		"put",
+		"delete",
+		"clear",
+		"restoreIfGeneration",
+		"close"
+	].every((method) => typeof candidate[method] === "function");
+}
+/**
+* The page's one store. The first copy of this package to ask creates it; every later copy, from
+* this version or another, receives the same one.
+*/
+function acquirePersistentAssetStore(globalObject = globalThis) {
+	const existing = globalObject[PERSISTENT_ASSET_STORE_KEY];
+	if (existing !== void 0) {
+		if (!isPersistentAssetStore(existing)) throw new Error("The page already holds an asset cache store this version cannot share.");
+		return existing;
+	}
+	const store = createPersistentAssetStore(() => globalObject.indexedDB);
+	Object.defineProperty(globalObject, PERSISTENT_ASSET_STORE_KEY, {
+		value: store,
+		configurable: false,
+		enumerable: false,
+		writable: false
+	});
+	return store;
+}
+//#endregion
 //#region src/config.ts
 var extensionConfig = {
 	id: "kubohiroyaassetcache",
@@ -1885,9 +2094,6 @@ var EXTENSION_ID = extensionConfig.id;
 var EXTENSION_VERSION = "0.14.0";
 var EXTENSION_DOCS_URI = extensionConfig.docsURI;
 var BLOCK_ICON_URI = extensionConfig.blockIconURI;
-var DB_NAME = "tw-asset-cache";
-var DB_VERSION = 1;
-var STORE_NAME = "assets";
 var STAGE_RESOURCE_NAME = "@stage";
 async function sha256Digest(bytes) {
 	const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes).buffer);
@@ -2350,7 +2556,7 @@ var AssetManagerExtension = class {
 	successfulRegistrationVersions = /* @__PURE__ */ new Map();
 	registrationCancellationVersions = /* @__PURE__ */ new Map();
 	registrationCommits = /* @__PURE__ */ new Map();
-	committedCacheRecords = /* @__PURE__ */ new Map();
+	persistentStore = null;
 	featureFlags;
 	loadingBackdropName = "";
 	lastAssetErrorType = "";
@@ -2687,11 +2893,9 @@ var AssetManagerExtension = class {
 	async deleteCachedAsset(args) {
 		const name = normalizeName(args.NAME);
 		await this.cacheDelete(name);
-		this.committedCacheRecords.set(name, null);
 	}
 	async deleteAllCachedAssets() {
 		await this.cacheClear();
-		this.committedCacheRecords.clear();
 	}
 	isLoaded(args) {
 		return this.assetRegistry.has(normalizeName(args.NAME));
@@ -2955,7 +3159,7 @@ var AssetManagerExtension = class {
 	}
 	async registerExternalAsset(url, name) {
 		const token = this.beginRegistration(name);
-		const record = url ? await this.fetchExternalAsset(url, name) : this.committedCacheRecords.has(name) ? this.committedCacheRecords.get(name) ?? null : await this.cacheGet(name);
+		const record = url ? await this.fetchExternalAsset(url, name) : await this.cacheLookup(name);
 		if (!this.isRegistrationCancellationCurrent(name, token)) return;
 		if (!record) {
 			const candidates = suggestNames(name, this.assetRegistry.keys());
@@ -3064,18 +3268,18 @@ var AssetManagerExtension = class {
 			let previousCached;
 			let nextCached;
 			if (cacheRecord) {
-				previousCached = this.committedCacheRecords.has(name) ? this.committedCacheRecords.get(name) ?? null : await this.cacheGet(name);
+				previousCached = await this.cacheLookup(name);
 				if (!this.isRegistrationCancellationCurrent(name, token)) {
 					this.disposeRegisteredAsset(prepared);
 					return;
 				}
 				nextCached = {
 					...cacheRecord,
-					generation: token.version
+					generation: this.store().nextGeneration()
 				};
 				await this.cachePut(nextCached);
 				if (!this.isRegistrationCancellationCurrent(name, token)) {
-					await this.restoreCacheIfGeneration(name, token.version, previousCached);
+					await this.restoreCacheIfGeneration(name, nextCached.generation, previousCached);
 					this.disposeRegisteredAsset(prepared);
 					return;
 				}
@@ -3083,16 +3287,16 @@ var AssetManagerExtension = class {
 			try {
 				await this.commitPreparedAssetNow(name, kind, prepared, token);
 			} catch (error) {
-				if (cacheRecord) await this.restoreCacheIfGeneration(name, token.version, previousCached ?? null);
+				if (nextCached) await this.restoreCacheIfGeneration(name, nextCached.generation, previousCached ?? null);
 				throw error;
 			}
 			this.invalidateDOMImageResources(name);
 			if (!this.isRegistrationCancellationCurrent(name, token)) {
-				if (cacheRecord) await this.restoreCacheIfGeneration(name, token.version, previousCached ?? null);
+				if (nextCached) await this.restoreCacheIfGeneration(name, nextCached.generation, previousCached ?? null);
 				return;
 			}
 			this.successfulRegistrationVersions.set(name, token.version);
-			if (nextCached) this.committedCacheRecords.set(name, nextCached);
+			if (nextCached) this.store().commit(name, nextCached);
 		});
 		this.registrationCommits.set(name, commit);
 		try {
@@ -3249,52 +3453,29 @@ var AssetManagerExtension = class {
 		if (mimeType.startsWith("audio/")) return "audio";
 		return "unknown";
 	}
-	openDatabase() {
-		return new Promise((resolve, reject) => {
-			const request = indexedDB.open(DB_NAME, DB_VERSION);
-			request.onupgradeneeded = () => {
-				if (!request.result.objectStoreNames.contains(STORE_NAME)) request.result.createObjectStore(STORE_NAME, { keyPath: "name" });
-			};
-			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => reject(request.error);
-		});
+	/** The page's one owner of the `tw-asset-cache` database, shared with every other copy of this package. */
+	store() {
+		this.persistentStore ??= acquirePersistentAssetStore();
+		return this.persistentStore;
 	}
-	async transaction(mode, action) {
-		const database = await this.openDatabase();
-		return new Promise((resolve, reject) => {
-			const request = action(database.transaction(STORE_NAME, mode).objectStore(STORE_NAME));
-			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => reject(request.error);
-		});
+	async cacheLookup(name) {
+		const committed = this.store().committed(name);
+		return committed === void 0 ? await this.cacheGet(name) : committed;
 	}
 	async cacheGet(name) {
-		return await this.transaction("readonly", (store) => store.get(name)) ?? null;
+		return await this.store().get(name);
 	}
 	async cachePut(record) {
-		await this.transaction("readwrite", (store) => store.put(record));
+		await this.store().put(record);
 	}
 	async cacheDelete(name) {
-		await this.transaction("readwrite", (store) => store.delete(name));
+		await this.store().delete(name);
 	}
 	async cacheClear() {
-		await this.transaction("readwrite", (store) => store.clear());
+		await this.store().clear();
 	}
 	async restoreCacheIfGeneration(name, generation, previous) {
-		const database = await this.openDatabase();
-		await new Promise((resolve, reject) => {
-			const transaction = database.transaction(STORE_NAME, "readwrite");
-			const store = transaction.objectStore(STORE_NAME);
-			const request = store.get(name);
-			request.onerror = () => reject(request.error);
-			request.onsuccess = () => {
-				if (request.result?.generation !== generation) return;
-				if (previous) store.put(previous);
-				else store.delete(name);
-			};
-			transaction.oncomplete = () => resolve();
-			transaction.onerror = () => reject(transaction.error);
-			transaction.onabort = () => reject(transaction.error);
-		});
+		await this.store().restoreIfGeneration(name, generation, previous);
 	}
 	async fetchExternalAsset(url, name) {
 		const response = await fetch(url);
@@ -4346,34 +4527,23 @@ function createIndexedDBBinaryObjectStore(options = {}) {
 	let released = false;
 	const open = () => {
 		assertActive(released);
-		if (!indexedDB?.open) throw objectError("ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE", "IndexedDB is unavailable.");
-		let request;
-		try {
-			request = indexedDB.open(databaseName, 1);
-		} catch (error) {
-			throw objectError("ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE", "IndexedDB open failed.", error);
-		}
-		return new Promise((resolve, reject) => {
-			request.onupgradeneeded = () => {
-				if (!request.result.objectStoreNames.contains("objects")) request.result.createObjectStore("objects", { keyPath: "key" });
-			};
-			request.onsuccess = () => {
-				request.result.onversionchange = () => request.result.close();
-				resolve(request.result);
-			};
-			request.onerror = () => reject(objectError("ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE", "IndexedDB open failed.", request.error));
-			request.onblocked = () => reject(objectError("ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE", "IndexedDB open was blocked."));
+		return openIndexedDB({
+			factory: indexedDB,
+			name: databaseName,
+			version: 1,
+			upgrade(database) {
+				if (!database.objectStoreNames.contains("objects")) database.createObjectStore("objects", { keyPath: "key" });
+			},
+			errors: {
+				unavailable: () => objectError("ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE", "IndexedDB is unavailable."),
+				openThrew: (cause) => objectError("ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE", "IndexedDB open failed.", cause),
+				requestFailed: (cause) => objectError("ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE", "IndexedDB open failed.", cause),
+				blocked: () => objectError("ASSET_BINARY_OBJECT_INDEXEDDB_UNAVAILABLE", "IndexedDB open was blocked.")
+			}
 		});
 	};
-	const complete = (transaction) => new Promise((resolve, reject) => {
-		transaction.oncomplete = () => resolve();
-		transaction.onerror = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction failed."));
-		transaction.onabort = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction aborted."));
-	});
-	const result = (request) => new Promise((resolve, reject) => {
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () => reject(request.error ?? /* @__PURE__ */ new Error("IndexedDB request failed."));
-	});
+	const complete = transactionComplete;
+	const result = requestResult;
 	return Object.freeze({
 		kind: "indexeddb",
 		async put(descriptorValue, source, operationOptions = {}) {
@@ -4548,19 +4718,6 @@ function integrityHex(integrity) {
 	if (/^[0-9a-f]{64}$/u.test(payload)) return payload;
 	return [...Uint8Array.from(atob(payload), (character) => character.charCodeAt(0))].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
-function requestResult$3(request) {
-	return new Promise((resolve, reject) => {
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () => reject(request.error ?? /* @__PURE__ */ new Error("IndexedDB request failed."));
-	});
-}
-function transactionComplete$4(transaction) {
-	return new Promise((resolve, reject) => {
-		transaction.oncomplete = () => resolve();
-		transaction.onerror = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction failed."));
-		transaction.onabort = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction aborted."));
-	});
-}
 function mappedMetadataError(error) {
 	if (error instanceof Error && "code" in error && typeof error.code === "string") return error;
 	if (error instanceof DOMException && error.name === "QuotaExceededError") return storeError("ASSET_BINARY_OPFS_QUOTA", "Binary bundle metadata quota was exceeded.", error);
@@ -4613,27 +4770,24 @@ function createOpfsBinaryBundleStore(options) {
 	}
 	async function openDatabase() {
 		if (released) throw storeError("ASSET_BINARY_BUNDLE_RELEASED", "Binary bundle store was released.");
-		if (!indexedDB?.open) throw storeError("ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE", "IndexedDB metadata is unavailable.");
-		let request;
-		try {
-			request = indexedDB.open(options.databaseName, DATABASE_VERSION$3);
-		} catch (error) {
-			throw mappedMetadataError(error);
-		}
-		return new Promise((resolve, reject) => {
-			request.onupgradeneeded = () => {
-				const database = request.result;
-				if (!database.objectStoreNames.contains(MANIFEST_STORE)) database.createObjectStore(MANIFEST_STORE, { keyPath: "key" });
-				if (!database.objectStoreNames.contains(INTENT_STORE)) database.createObjectStore(INTENT_STORE, { keyPath: "token" });
-				if (!database.objectStoreNames.contains(STATE_STORE)) database.createObjectStore(STATE_STORE, { keyPath: "key" });
-				if (!database.objectStoreNames.contains(DELETION_STORE)) database.createObjectStore(DELETION_STORE, { keyPath: "key" });
-			};
-			request.onsuccess = () => {
-				request.result.onversionchange = () => request.result.close();
-				resolve(request.result);
-			};
-			request.onerror = () => reject(mappedMetadataError(request.error));
-			request.onblocked = () => reject(storeError("ASSET_BINARY_OPFS_OPEN_FAILED", "OPFS metadata open was blocked."));
+		return await openIndexedDB({
+			factory: indexedDB,
+			name: options.databaseName,
+			version: DATABASE_VERSION$3,
+			upgrade(database) {
+				for (const [name, keyPath] of [
+					[MANIFEST_STORE, "key"],
+					[INTENT_STORE, "token"],
+					[STATE_STORE, "key"],
+					[DELETION_STORE, "key"]
+				]) if (!database.objectStoreNames.contains(name)) database.createObjectStore(name, { keyPath });
+			},
+			errors: {
+				unavailable: () => storeError("ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE", "IndexedDB metadata is unavailable."),
+				openThrew: (cause) => mappedMetadataError(cause),
+				requestFailed: (cause) => mappedMetadataError(cause),
+				blocked: () => storeError("ASSET_BINARY_OPFS_OPEN_FAILED", "OPFS metadata open was blocked.")
+			}
 		});
 	}
 	async function finishObjectDeletions(database, deletions) {
@@ -4647,7 +4801,7 @@ function createOpfsBinaryBundleStore(options) {
 			const claimed = [];
 			const claimedAt = Date.now();
 			for (const key of remaining) {
-				const current = await requestResult$3(deletionStore.get(key));
+				const current = await requestResult(deletionStore.get(key));
 				if (!current) {
 					remaining.delete(key);
 					continue;
@@ -4661,7 +4815,7 @@ function createOpfsBinaryBundleStore(options) {
 				deletionStore.put(owned);
 				claimed.push(owned);
 			}
-			await transactionComplete$4(claim);
+			await transactionComplete(claim);
 			if (claimed.length === 0) {
 				await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
 				retryDelayMs = Math.min(retryDelayMs * 2, 250);
@@ -4670,22 +4824,22 @@ function createOpfsBinaryBundleStore(options) {
 			retryDelayMs = 20;
 			for (const deletion of claimed) {
 				const ownership = database.transaction(DELETION_STORE, "readonly");
-				const owned = await requestResult$3(ownership.objectStore(DELETION_STORE).get(deletion.key));
-				await transactionComplete$4(ownership);
+				const owned = await requestResult(ownership.objectStore(DELETION_STORE).get(deletion.key));
+				await transactionComplete(ownership);
 				if (owned?.cleanupToken !== cleanupToken) continue;
 				await options.objectStore.delete(deletion.key);
 				const complete = database.transaction(DELETION_STORE, "readwrite");
 				const store = complete.objectStore(DELETION_STORE);
-				if ((await requestResult$3(store.get(deletion.key)))?.cleanupToken === cleanupToken) store.delete(deletion.key);
-				await transactionComplete$4(complete);
+				if ((await requestResult(store.get(deletion.key)))?.cleanupToken === cleanupToken) store.delete(deletion.key);
+				await transactionComplete(complete);
 				remaining.delete(deletion.key);
 			}
 		}
 	}
 	async function pendingObjectDeletions(database, keys) {
 		const transaction = database.transaction(DELETION_STORE, "readonly");
-		const values = await requestResult$3(transaction.objectStore(DELETION_STORE).getAll());
-		await transactionComplete$4(transaction);
+		const values = await requestResult(transaction.objectStore(DELETION_STORE).getAll());
+		await transactionComplete(transaction);
 		return keys ? values.filter(({ key }) => keys.has(key)) : values;
 	}
 	async function claimStaleIntentObjects(database, staleBefore) {
@@ -4694,8 +4848,8 @@ function createOpfsBinaryBundleStore(options) {
 			INTENT_STORE,
 			DELETION_STORE
 		], "readwrite");
-		const manifests = await requestResult$3(transaction.objectStore(MANIFEST_STORE).getAll());
-		const intents = await requestResult$3(transaction.objectStore(INTENT_STORE).getAll());
+		const manifests = await requestResult(transaction.objectStore(MANIFEST_STORE).getAll());
+		const intents = await requestResult(transaction.objectStore(INTENT_STORE).getAll());
 		const stale = intents.filter((intent) => {
 			const heartbeatAt = Number.isSafeInteger(intent.heartbeatAt) ? intent.heartbeatAt : intent.createdAt;
 			return Number.isSafeInteger(heartbeatAt) && heartbeatAt <= staleBefore;
@@ -4727,7 +4881,7 @@ function createOpfsBinaryBundleStore(options) {
 			}
 			intentStore.delete(intent.token);
 		}
-		await transactionComplete$4(transaction);
+		await transactionComplete(transaction);
 		return [...claimed.values()];
 	}
 	async function recover() {
@@ -4807,25 +4961,25 @@ function createOpfsBinaryBundleStore(options) {
 				DELETION_STORE
 			], "readwrite");
 			const manifests = transaction.objectStore(MANIFEST_STORE);
-			manifest = await requestResult$3(manifests.get(key.key));
+			manifest = await requestResult(manifests.get(key.key));
 			if (condition) {
 				if (!manifestValid(manifest, key.key) || manifest.generation !== condition.generation || manifest.epoch !== condition.epoch || !(condition.expiredAt < manifest.lastAccessedAt || condition.expiredAt - manifest.lastAccessedAt > ttlMs)) {
-					await transactionComplete$4(transaction);
+					await transactionComplete(transaction);
 					return;
 				}
 			}
 			manifests.delete(key.key);
 			const state = transaction.objectStore(STATE_STORE);
 			const stateKey = `generation:${key.key}`;
-			const value = await requestResult$3(state.get(stateKey));
+			const value = await requestResult(state.get(stateKey));
 			const next = value && typeof value === "object" && Number.isSafeInteger(value.value) ? Number(value.value) + 1 : 1;
 			state.put({
 				key: stateKey,
 				value: next
 			});
 			if (manifestValid(manifest, key.key)) {
-				const manifestValues = await requestResult$3(manifests.getAll());
-				const intentValues = await requestResult$3(transaction.objectStore(INTENT_STORE).getAll());
+				const manifestValues = await requestResult(manifests.getAll());
+				const intentValues = await requestResult(transaction.objectStore(INTENT_STORE).getAll());
 				const referenced = /* @__PURE__ */ new Set();
 				for (const value of manifestValues) {
 					if (!manifestValid(value)) continue;
@@ -4849,7 +5003,7 @@ function createOpfsBinaryBundleStore(options) {
 				}
 				deletions = [...byKey.values()];
 			}
-			await transactionComplete$4(transaction);
+			await transactionComplete(transaction);
 			await finishObjectDeletions(database, deletions);
 			return manifestValid(manifest, key.key) ? manifest : void 0;
 		} finally {
@@ -4891,9 +5045,9 @@ function createOpfsBinaryBundleStore(options) {
 						STATE_STORE,
 						DELETION_STORE
 					], "readwrite");
-					const completion = transactionComplete$4(transaction);
+					const completion = transactionComplete(transaction);
 					const deletionStore = transaction.objectStore(DELETION_STORE);
-					const conflicts = (await Promise.all(objects.map(({ key }) => requestResult$3(deletionStore.get(key))))).filter((value) => value !== void 0);
+					const conflicts = (await Promise.all(objects.map(({ key }) => requestResult(deletionStore.get(key))))).filter((value) => value !== void 0);
 					if (conflicts.length > 0) {
 						transaction.abort();
 						await completion.catch(() => {});
@@ -4901,9 +5055,9 @@ function createOpfsBinaryBundleStore(options) {
 						continue;
 					}
 					const state = transaction.objectStore(STATE_STORE);
-					const epochValue = await requestResult$3(state.get("epoch"));
+					const epochValue = await requestResult(state.get("epoch"));
 					persistentEpoch = epochValue && typeof epochValue === "object" && Number.isSafeInteger(epochValue.value) ? Number(epochValue.value) : 0;
-					const stateValue = await requestResult$3(state.get(stateKey));
+					const stateValue = await requestResult(state.get(stateKey));
 					persistentGeneration = stateValue && typeof stateValue === "object" && Number.isSafeInteger(stateValue.value) ? Number(stateValue.value) + 1 : 1;
 					state.put({
 						key: stateKey,
@@ -4926,10 +5080,10 @@ function createOpfsBinaryBundleStore(options) {
 					heartbeatPromise = heartbeatPromise.then(async () => {
 						const transaction = database.transaction([INTENT_STORE, DELETION_STORE], "readwrite");
 						const store = transaction.objectStore(INTENT_STORE);
-						const intent = await requestResult$3(store.get(token));
+						const intent = await requestResult(store.get(token));
 						if (!intent) throw abortError$3();
 						const deletionStore = transaction.objectStore(DELETION_STORE);
-						if ((await Promise.all(objects.map(({ key }) => requestResult$3(deletionStore.get(key))))).some((value) => value !== void 0)) {
+						if ((await Promise.all(objects.map(({ key }) => requestResult(deletionStore.get(key))))).some((value) => value !== void 0)) {
 							transaction.abort();
 							throw abortError$3();
 						}
@@ -4937,7 +5091,7 @@ function createOpfsBinaryBundleStore(options) {
 							...intent,
 							heartbeatAt: now()
 						});
-						await transactionComplete$4(transaction);
+						await transactionComplete(transaction);
 					}).catch((error) => {
 						heartbeatFailure ??= error;
 					});
@@ -4967,7 +5121,7 @@ function createOpfsBinaryBundleStore(options) {
 					DELETION_STORE
 				], "readwrite");
 				const manifests = transaction.objectStore(MANIFEST_STORE);
-				const manifestValues = await requestResult$3(manifests.getAll());
+				const manifestValues = await requestResult(manifests.getAll());
 				const previousValue = manifestValues.find((value) => manifestValid(value, normalized.key.key));
 				if (manifestValid(previousValue, normalized.key.key)) previous = previousValue;
 				const retained = manifestValues.filter((value) => manifestValid(value) && value.key !== normalized.key.key).sort((left, right) => left.lastAccessedAt - right.lastAccessedAt);
@@ -4983,13 +5137,13 @@ function createOpfsBinaryBundleStore(options) {
 					return true;
 				});
 				const intents = transaction.objectStore(INTENT_STORE);
-				const currentIntent = await requestResult$3(intents.get(token));
-				const committedState = await requestResult$3(transaction.objectStore(STATE_STORE).get(stateKey));
-				const committedEpoch = await requestResult$3(transaction.objectStore(STATE_STORE).get("epoch"));
+				const currentIntent = await requestResult(intents.get(token));
+				const committedState = await requestResult(transaction.objectStore(STATE_STORE).get(stateKey));
+				const committedEpoch = await requestResult(transaction.objectStore(STATE_STORE).get("epoch"));
 				const latestPersistentGeneration = committedState && typeof committedState === "object" ? committedState.value : void 0;
 				const latestEpoch = committedEpoch && typeof committedEpoch === "object" && Number.isSafeInteger(committedEpoch.value) ? Number(committedEpoch.value) : 0;
 				const deletionStore = transaction.objectStore(DELETION_STORE);
-				const deletionConflicts = await Promise.all(objects.map(({ key }) => requestResult$3(deletionStore.get(key))));
+				const deletionConflicts = await Promise.all(objects.map(({ key }) => requestResult(deletionStore.get(key))));
 				if (!currentIntent || currentIntent.token !== token || currentIntent.key !== normalized.key.key || currentIntent.generation !== persistentGeneration || currentIntent.epoch !== persistentEpoch || generations.get(normalized.key.key) !== currentGeneration || latestPersistentGeneration !== persistentGeneration || latestEpoch !== persistentEpoch || deletionConflicts.some((value) => value !== void 0)) {
 					transaction.abort();
 					throw abortError$3();
@@ -5012,7 +5166,7 @@ function createOpfsBinaryBundleStore(options) {
 				for (const candidate of evicted) manifests.delete(candidate.key);
 				manifests.put(manifest);
 				intents.delete(token);
-				const allIntents = await requestResult$3(intents.getAll());
+				const allIntents = await requestResult(intents.getAll());
 				const evictedKeys = new Set(evicted.map((candidate) => candidate.key));
 				const referencedObjects = new Set(manifest.files.map(({ object }) => object.key));
 				for (const candidate of retained) {
@@ -5036,7 +5190,7 @@ function createOpfsBinaryBundleStore(options) {
 					pendingByKey.set(descriptor.key, deletion);
 				}
 				committedDeletions = [...pendingByKey.values()];
-				await transactionComplete$4(transaction);
+				await transactionComplete(transaction);
 				await finishObjectDeletions(database, committedDeletions);
 				return Object.freeze({
 					namespace: normalized.key.namespace,
@@ -5065,8 +5219,8 @@ function createOpfsBinaryBundleStore(options) {
 			let manifest;
 			try {
 				const transaction = database.transaction(MANIFEST_STORE, "readonly");
-				manifest = await requestResult$3(transaction.objectStore(MANIFEST_STORE).get(key.key));
-				await transactionComplete$4(transaction);
+				manifest = await requestResult(transaction.objectStore(MANIFEST_STORE).get(key.key));
+				await transactionComplete(transaction);
 			} finally {
 				database.close();
 			}
@@ -5102,7 +5256,7 @@ function createOpfsBinaryBundleStore(options) {
 			try {
 				const transaction = touchDatabase.transaction(MANIFEST_STORE, "readwrite");
 				const manifests = transaction.objectStore(MANIFEST_STORE);
-				const current = await requestResult$3(manifests.get(key.key));
+				const current = await requestResult(manifests.get(key.key));
 				if (!manifestValid(current, key.key) || current.generation !== manifest.generation || current.epoch !== manifest.epoch) {
 					transaction.abort();
 					throw abortError$3();
@@ -5111,7 +5265,7 @@ function createOpfsBinaryBundleStore(options) {
 					...current,
 					lastAccessedAt: timestamp
 				});
-				await transactionComplete$4(transaction);
+				await transactionComplete(transaction);
 			} finally {
 				touchDatabase.close();
 			}
@@ -5142,7 +5296,7 @@ function createOpfsBinaryBundleStore(options) {
 			try {
 				const transaction = database.transaction(MANIFEST_STORE, "readwrite");
 				const manifests = transaction.objectStore(MANIFEST_STORE);
-				const value = await requestResult$3(manifests.get(key.key));
+				const value = await requestResult(manifests.get(key.key));
 				if (!manifestValid(value, key.key)) {
 					transaction.abort();
 					throw storeError("ASSET_BINARY_BUNDLE_NOT_FOUND", "Binary bundle was not found.");
@@ -5151,7 +5305,7 @@ function createOpfsBinaryBundleStore(options) {
 					...value,
 					lastAccessedAt: now()
 				});
-				await transactionComplete$4(transaction);
+				await transactionComplete(transaction);
 			} finally {
 				database.close();
 			}
@@ -5165,10 +5319,10 @@ function createOpfsBinaryBundleStore(options) {
 					INTENT_STORE,
 					DELETION_STORE
 				], "readonly");
-				const values = await requestResult$3(transaction.objectStore(MANIFEST_STORE).getAll());
-				const intents = await requestResult$3(transaction.objectStore(INTENT_STORE).getAll());
-				const deletions = await requestResult$3(transaction.objectStore(DELETION_STORE).getAll());
-				await transactionComplete$4(transaction);
+				const values = await requestResult(transaction.objectStore(MANIFEST_STORE).getAll());
+				const intents = await requestResult(transaction.objectStore(INTENT_STORE).getAll());
+				const deletions = await requestResult(transaction.objectStore(DELETION_STORE).getAll());
+				await transactionComplete(transaction);
 				const manifests = values.filter((value) => manifestValid(value));
 				const objects = /* @__PURE__ */ new Map();
 				for (const manifest of manifests) for (const file of manifest.files) objects.set(file.object.key, file.object.size);
@@ -5201,8 +5355,8 @@ function createOpfsBinaryBundleStore(options) {
 			let manifests;
 			try {
 				const transaction = database.transaction(MANIFEST_STORE, "readonly");
-				const values = await requestResult$3(transaction.objectStore(MANIFEST_STORE).getAll());
-				await transactionComplete$4(transaction);
+				const values = await requestResult(transaction.objectStore(MANIFEST_STORE).getAll());
+				await transactionComplete(transaction);
 				manifests = values.filter((value) => manifestValid(value));
 			} finally {
 				database.close();
@@ -5239,12 +5393,12 @@ function createOpfsBinaryBundleStore(options) {
 					STATE_STORE,
 					DELETION_STORE
 				], "readwrite");
-				const completion = transactionComplete$4(clear);
-				const values = await requestResult$3(clear.objectStore(MANIFEST_STORE).getAll());
-				const intents = await requestResult$3(clear.objectStore(INTENT_STORE).getAll());
+				const completion = transactionComplete(clear);
+				const values = await requestResult(clear.objectStore(MANIFEST_STORE).getAll());
+				const intents = await requestResult(clear.objectStore(INTENT_STORE).getAll());
 				manifests = values.filter((value) => manifestValid(value));
 				const deletionStore = clear.objectStore(DELETION_STORE);
-				const existing = await requestResult$3(deletionStore.getAll());
+				const existing = await requestResult(deletionStore.getAll());
 				const byKey = new Map(existing.map((deletion) => [deletion.key, deletion]));
 				const activeIntentObjects = new Set(intents.flatMap(({ objects }) => objects.map(({ key }) => key)));
 				for (const manifest of manifests) for (const { object } of manifest.files) {
@@ -5260,7 +5414,7 @@ function createOpfsBinaryBundleStore(options) {
 				deletions = [...byKey.values()];
 				clear.objectStore(MANIFEST_STORE).clear();
 				const state = clear.objectStore(STATE_STORE);
-				const epochValue = await requestResult$3(state.get("epoch"));
+				const epochValue = await requestResult(state.get("epoch"));
 				const nextEpoch = epochValue && typeof epochValue === "object" && Number.isSafeInteger(epochValue.value) ? Number(epochValue.value) + 1 : 1;
 				state.clear();
 				state.put({
@@ -5428,19 +5582,6 @@ function storedRecordIsValid(value, metadata, key) {
 		return Boolean(expected && file && typeof file === "object" && file.path === expected.path && file.size === expected.size && file.integrity === expected.integrity && file.data instanceof ArrayBuffer && file.data.byteLength === expected.size);
 	});
 }
-function requestResult$2(request) {
-	return new Promise((resolve, reject) => {
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () => reject(request.error ?? /* @__PURE__ */ new Error("IndexedDB request failed."));
-	});
-}
-function transactionComplete$3(transaction) {
-	return new Promise((resolve, reject) => {
-		transaction.oncomplete = () => resolve();
-		transaction.onerror = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction failed."));
-		transaction.onabort = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction was aborted."));
-	});
-}
 function mappedStoreError(error, operation, signal) {
 	if (signal?.aborted || error instanceof DOMException && error.name === "AbortError") return abortError$2();
 	if (error instanceof Error && "code" in error && typeof error.code === "string" && error.code.startsWith("ASSET_BINARY_BUNDLE_")) return error;
@@ -5532,41 +5673,22 @@ function createIndexedDBBinaryBundleStore(options = {}) {
 	}
 	async function openDatabase() {
 		ensureActive();
-		if (!indexedDB || typeof indexedDB.open !== "function") throw bundleError("ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE", "IndexedDB is not available for the binary bundle store.");
-		let request;
-		try {
-			request = indexedDB.open(databaseName, DATABASE_VERSION$2);
-		} catch (error) {
-			throw bundleError("ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE", "The binary bundle IndexedDB database could not be opened.", error);
-		}
-		return new Promise((resolve, reject) => {
-			let settled = false;
-			const rejectOnce = (error) => {
-				if (settled) return;
-				settled = true;
-				reject(error);
-			};
-			request.onupgradeneeded = () => {
-				const database = request.result;
+		return await openIndexedDB({
+			factory: indexedDB,
+			name: databaseName,
+			version: DATABASE_VERSION$2,
+			upgrade(database, transaction) {
 				if (!database.objectStoreNames.contains(BUNDLE_STORE$1)) database.createObjectStore(BUNDLE_STORE$1, { keyPath: "key" });
-				let metadata;
-				if (!database.objectStoreNames.contains(METADATA_STORE$1)) metadata = database.createObjectStore(METADATA_STORE$1, { keyPath: "key" });
-				else metadata = request.transaction.objectStore(METADATA_STORE$1);
+				const metadata = database.objectStoreNames.contains(METADATA_STORE$1) ? transaction.objectStore(METADATA_STORE$1) : database.createObjectStore(METADATA_STORE$1, { keyPath: "key" });
 				if (!metadata.indexNames.contains(LAST_ACCESSED_INDEX)) metadata.createIndex(LAST_ACCESSED_INDEX, "lastAccessedAt");
-			};
-			request.onsuccess = () => {
-				const database = request.result;
-				if (settled || released) {
-					database.close();
-					rejectOnce(releasedError());
-					return;
-				}
-				settled = true;
-				database.onversionchange = () => database.close();
-				resolve(database);
-			};
-			request.onerror = () => rejectOnce(bundleError("ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE", "The binary bundle IndexedDB open request failed.", request.error));
-			request.onblocked = () => rejectOnce(bundleError("ASSET_BINARY_BUNDLE_INDEXEDDB_BLOCKED", "The binary bundle IndexedDB open request was blocked."));
+			},
+			rejectArrival: () => released ? releasedError() : null,
+			errors: {
+				unavailable: () => bundleError("ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE", "IndexedDB is not available for the binary bundle store."),
+				openThrew: (cause) => bundleError("ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE", "The binary bundle IndexedDB database could not be opened.", cause),
+				requestFailed: (cause) => bundleError("ASSET_BINARY_BUNDLE_INDEXEDDB_UNAVAILABLE", "The binary bundle IndexedDB open request failed.", cause),
+				blocked: () => bundleError("ASSET_BINARY_BUNDLE_INDEXEDDB_BLOCKED", "The binary bundle IndexedDB open request was blocked.")
+			}
 		});
 	}
 	function trackTransaction(key, transaction) {
@@ -5767,7 +5889,7 @@ function createIndexedDBBinaryBundleStore(options = {}) {
 				}
 			};
 			try {
-				await transactionComplete$3(transaction);
+				await transactionComplete(transaction);
 			} catch (error) {
 				throw mappedStoreError(operationError ?? error, "put", signal);
 			}
@@ -5794,7 +5916,7 @@ function createIndexedDBBinaryBundleStore(options = {}) {
 				metadataStore.delete(key);
 			};
 			try {
-				await transactionComplete$3(transaction);
+				await transactionComplete(transaction);
 			} catch (error) {
 				throw mappedStoreError(error, "conditional delete");
 			}
@@ -5820,7 +5942,7 @@ function createIndexedDBBinaryBundleStore(options = {}) {
 				});
 			};
 			try {
-				await transactionComplete$3(transaction);
+				await transactionComplete(transaction);
 			} catch (error) {
 				throw mappedStoreError(error, "touch");
 			}
@@ -5849,9 +5971,9 @@ function createIndexedDBBinaryBundleStore(options = {}) {
 			const metadataRequest = transaction.objectStore(METADATA_STORE$1).get(key.key);
 			try {
 				[bundle, metadata] = await Promise.all([
-					requestResult$2(bundleRequest),
-					requestResult$2(metadataRequest),
-					transactionComplete$3(transaction)
+					requestResult(bundleRequest),
+					requestResult(metadataRequest),
+					transactionComplete(transaction)
 				]);
 			} catch (error) {
 				throw mappedStoreError(error, "get", signal);
@@ -5921,7 +6043,7 @@ function createIndexedDBBinaryBundleStore(options = {}) {
 			transaction.objectStore(BUNDLE_STORE$1).delete(key.key);
 			transaction.objectStore(METADATA_STORE$1).delete(key.key);
 			try {
-				await transactionComplete$3(transaction);
+				await transactionComplete(transaction);
 			} catch (error) {
 				throw mappedStoreError(error, "delete", signal);
 			}
@@ -5945,8 +6067,8 @@ function createIndexedDBBinaryBundleStore(options = {}) {
 		const database = await openDatabase();
 		try {
 			const transaction = database.transaction(METADATA_STORE$1, "readonly");
-			const values = await requestResult$2(transaction.objectStore(METADATA_STORE$1).getAll());
-			await transactionComplete$3(transaction);
+			const values = await requestResult(transaction.objectStore(METADATA_STORE$1).getAll());
+			await transactionComplete(transaction);
 			return values.filter((value) => Boolean(value && typeof value === "object" && metadataIsValid(value, String(value.key))));
 		} finally {
 			database.close();
@@ -5959,7 +6081,7 @@ function createIndexedDBBinaryBundleStore(options = {}) {
 			const transaction = database.transaction([BUNDLE_STORE$1, METADATA_STORE$1], "readwrite");
 			transaction.objectStore(BUNDLE_STORE$1).clear();
 			transaction.objectStore(METADATA_STORE$1).clear();
-			await transactionComplete$3(transaction);
+			await transactionComplete(transaction);
 		} catch (error) {
 			throw mappedStoreError(error, "clear");
 		} finally {
@@ -6162,13 +6284,6 @@ function catalogError(code, message, cause) {
 	Object.defineProperty(error, "code", { value: code });
 	return error;
 }
-function transactionComplete$2(transaction) {
-	return new Promise((resolve, reject) => {
-		transaction.oncomplete = () => resolve();
-		transaction.onerror = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction failed."));
-		transaction.onabort = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction was aborted."));
-	});
-}
 function isNonNegativeSafeInteger(value) {
 	return Number.isSafeInteger(value) && Number(value) >= 0;
 }
@@ -6206,44 +6321,24 @@ var StoryCacheCatalog = class {
 		this.#now = now;
 	}
 	async #open() {
-		if (!this.#indexedDB || typeof this.#indexedDB.open !== "function") throw catalogError("ASSET_CACHE_CATALOG_UNAVAILABLE", "Story cache catalog is unavailable.");
-		let request;
-		try {
-			request = this.#indexedDB.open(CATALOG_DATABASE_NAME, CATALOG_DATABASE_VERSION);
-		} catch (error) {
-			throw catalogError("ASSET_CACHE_CATALOG_UNAVAILABLE", "Story cache catalog could not be opened.", error);
-		}
-		return new Promise((resolve, reject) => {
-			let settled = false;
-			request.onupgradeneeded = () => {
-				const database = request.result;
+		return await openIndexedDB({
+			factory: this.#indexedDB,
+			name: CATALOG_DATABASE_NAME,
+			version: CATALOG_DATABASE_VERSION,
+			upgrade(database) {
 				if (!database.objectStoreNames.contains(STORY_STORE)) database.createObjectStore(STORY_STORE, { keyPath: "key" }).createIndex("lastAccessedAt", "lastAccessedAt");
 				if (!database.objectStoreNames.contains(LEASE_STORE)) {
 					const leases = database.createObjectStore(LEASE_STORE, { keyPath: "key" });
 					leases.createIndex("databaseName", "databaseName");
 					leases.createIndex("expiresAt", "expiresAt");
 				}
-			};
-			request.onsuccess = () => {
-				const database = request.result;
-				if (settled) {
-					database.close();
-					return;
-				}
-				settled = true;
-				database.onversionchange = () => database.close();
-				resolve(database);
-			};
-			request.onerror = () => {
-				if (settled) return;
-				settled = true;
-				reject(catalogError("ASSET_CACHE_CATALOG_UNAVAILABLE", "Story cache catalog open request failed.", request.error));
-			};
-			request.onblocked = () => {
-				if (settled) return;
-				settled = true;
-				reject(catalogError("ASSET_CACHE_CATALOG_BLOCKED", "Story cache catalog open was blocked."));
-			};
+			},
+			errors: {
+				unavailable: () => catalogError("ASSET_CACHE_CATALOG_UNAVAILABLE", "Story cache catalog is unavailable."),
+				openThrew: (cause) => catalogError("ASSET_CACHE_CATALOG_UNAVAILABLE", "Story cache catalog could not be opened.", cause),
+				requestFailed: (cause) => catalogError("ASSET_CACHE_CATALOG_UNAVAILABLE", "Story cache catalog open request failed.", cause),
+				blocked: () => catalogError("ASSET_CACHE_CATALOG_BLOCKED", "Story cache catalog open was blocked.")
+			}
 		});
 	}
 	async #writeLease(identity, stats, accessedAt, token, expiresAt) {
@@ -6290,7 +6385,7 @@ var StoryCacheCatalog = class {
 				transaction.objectStore(LEASE_STORE).put(lease);
 			};
 			try {
-				await transactionComplete$2(transaction);
+				await transactionComplete(transaction);
 			} catch (error) {
 				throw semanticError ?? error;
 			}
@@ -6346,7 +6441,7 @@ var StoryCacheCatalog = class {
 			await Promise.all([
 				cursorComplete,
 				leasesComplete,
-				transactionComplete$2(transaction)
+				transactionComplete(transaction)
 			]);
 			records.sort((left, right) => left.lastAccessedAt - right.lastAccessedAt || left.databaseName.localeCompare(right.databaseName, "en-US"));
 			return Object.freeze(records.map((record) => publicInfo(record, activeDatabases.has(record.databaseName))));
@@ -6370,7 +6465,7 @@ var StoryCacheCatalog = class {
 				if (isLeaseRecord(cursor.value) && cursor.value.databaseName === databaseName) cursor.delete();
 				cursor.continue();
 			};
-			await transactionComplete$2(transaction);
+			await transactionComplete(transaction);
 		} finally {
 			database.close();
 		}
@@ -6425,7 +6520,7 @@ var StoryCacheCatalog = class {
 				cursor.continue();
 			};
 			try {
-				await transactionComplete$2(transaction);
+				await transactionComplete(transaction);
 			} catch (error) {
 				throw semanticError ?? error;
 			}
@@ -6448,7 +6543,7 @@ var StoryCacheCatalog = class {
 					updatedAt: this.#now()
 				});
 			};
-			await transactionComplete$2(transaction);
+			await transactionComplete(transaction);
 		} finally {
 			database.close();
 		}
@@ -6495,7 +6590,7 @@ var StoryCacheCatalog = class {
 		try {
 			const transaction = database.transaction(LEASE_STORE, "readwrite");
 			transaction.objectStore(LEASE_STORE).delete(`${databaseName}:${token}`);
-			await transactionComplete$2(transaction);
+			await transactionComplete(transaction);
 		} finally {
 			database.close();
 		}
@@ -6694,19 +6789,6 @@ function takeBytes(value, transferOwnership) {
 	}
 	throw cacheError("ASSET_CACHE_LOAD_INVALID", "Remote binary loader must return an ArrayBuffer or Uint8Array.");
 }
-function requestResult$1(request) {
-	return new Promise((resolve, reject) => {
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () => reject(request.error ?? /* @__PURE__ */ new Error("IndexedDB request failed."));
-	});
-}
-function transactionComplete$1(transaction) {
-	return new Promise((resolve, reject) => {
-		transaction.oncomplete = () => resolve();
-		transaction.onerror = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction failed."));
-		transaction.onabort = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction was aborted."));
-	});
-}
 function metadataIsStructurallyValid(metadata) {
 	if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
 	const candidate = metadata;
@@ -6779,69 +6861,48 @@ var IndexedDBVerifiedRemoteStore = class {
 		this.#identityStored = false;
 	}
 	async #open() {
-		if (!this.#indexedDB || typeof this.#indexedDB.open !== "function") throw cacheError("ASSET_CACHE_INDEXEDDB_UNAVAILABLE", "IndexedDB is not available.");
-		let request;
-		try {
-			request = this.#indexedDB.open(this.#databaseName, DATABASE_VERSION$1);
-		} catch (error) {
-			throw cacheError("ASSET_CACHE_INDEXEDDB_UNAVAILABLE", "IndexedDB could not be opened.", error);
-		}
-		return new Promise((resolve, reject) => {
-			let settled = false;
-			const rejectOnce = (error) => {
-				if (settled) return;
-				settled = true;
-				reject(error);
-			};
-			request.onupgradeneeded = () => {
-				const database = request.result;
+		const database = await openIndexedDB({
+			factory: this.#indexedDB,
+			name: this.#databaseName,
+			version: DATABASE_VERSION$1,
+			upgrade(database, transaction) {
 				if (!database.objectStoreNames.contains(ENTRY_STORE)) database.createObjectStore(ENTRY_STORE, { keyPath: "key" });
-				let metadata;
-				if (!database.objectStoreNames.contains(METADATA_STORE)) metadata = database.createObjectStore(METADATA_STORE, { keyPath: "key" });
-				else metadata = request.transaction.objectStore(METADATA_STORE);
+				const metadata = database.objectStoreNames.contains(METADATA_STORE) ? transaction.objectStore(METADATA_STORE) : database.createObjectStore(METADATA_STORE, { keyPath: "key" });
 				if (!metadata.indexNames.contains("lastAccessedAt")) metadata.createIndex("lastAccessedAt", "lastAccessedAt");
 				if (!database.objectStoreNames.contains(INFO_STORE)) database.createObjectStore(INFO_STORE, { keyPath: "key" });
-			};
-			request.onsuccess = () => {
-				const database = request.result;
-				if (settled) {
-					database.close();
-					return;
-				}
-				settled = true;
-				database.onversionchange = () => database.close();
-				if (!this.#cacheIdentity || this.#identityStored) {
-					resolve(database);
-					return;
-				}
-				let transaction;
-				try {
-					transaction = database.transaction(INFO_STORE, "readwrite");
-					const record = {
-						key: "identity",
-						formatVersion: CACHE_FORMAT_VERSION,
-						id: this.#cacheIdentity.id,
-						label: this.#cacheIdentity.label,
-						databaseName: this.#cacheIdentity.databaseName,
-						lastOpenedAt: this.#now()
-					};
-					transaction.objectStore(INFO_STORE).put(record);
-				} catch (error) {
-					database.close();
-					reject(cacheError("ASSET_CACHE_IDENTITY_WRITE_FAILED", "Cache identity metadata could not be written.", error));
-					return;
-				}
-				transactionComplete$1(transaction).then(() => {
-					this.#identityStored = true;
-					resolve(database);
-				}, (error) => {
-					database.close();
-					reject(error);
-				});
-			};
-			request.onerror = () => rejectOnce(cacheError("ASSET_CACHE_INDEXEDDB_UNAVAILABLE", "IndexedDB open request failed.", request.error));
-			request.onblocked = () => rejectOnce(cacheError("ASSET_CACHE_INDEXEDDB_BLOCKED", "IndexedDB upgrade was blocked."));
+			},
+			errors: {
+				unavailable: () => cacheError("ASSET_CACHE_INDEXEDDB_UNAVAILABLE", "IndexedDB is not available."),
+				openThrew: (cause) => cacheError("ASSET_CACHE_INDEXEDDB_UNAVAILABLE", "IndexedDB could not be opened.", cause),
+				requestFailed: (cause) => cacheError("ASSET_CACHE_INDEXEDDB_UNAVAILABLE", "IndexedDB open request failed.", cause),
+				blocked: () => cacheError("ASSET_CACHE_INDEXEDDB_BLOCKED", "IndexedDB upgrade was blocked.")
+			}
 		});
+		if (!this.#cacheIdentity || this.#identityStored) return database;
+		let transaction;
+		try {
+			transaction = database.transaction(INFO_STORE, "readwrite");
+			const record = {
+				key: "identity",
+				formatVersion: CACHE_FORMAT_VERSION,
+				id: this.#cacheIdentity.id,
+				label: this.#cacheIdentity.label,
+				databaseName: this.#cacheIdentity.databaseName,
+				lastOpenedAt: this.#now()
+			};
+			transaction.objectStore(INFO_STORE).put(record);
+		} catch (error) {
+			database.close();
+			throw cacheError("ASSET_CACHE_IDENTITY_WRITE_FAILED", "Cache identity metadata could not be written.", error);
+		}
+		try {
+			await transactionComplete(transaction);
+		} catch (error) {
+			database.close();
+			throw error;
+		}
+		this.#identityStored = true;
+		return database;
 	}
 	async get(key) {
 		const database = await this.#open();
@@ -6850,9 +6911,9 @@ var IndexedDBVerifiedRemoteStore = class {
 			const entryRequest = transaction.objectStore(ENTRY_STORE).get(key);
 			const metadataRequest = transaction.objectStore(METADATA_STORE).get(key);
 			const [entry, metadata] = await Promise.all([
-				requestResult$1(entryRequest),
-				requestResult$1(metadataRequest),
-				transactionComplete$1(transaction)
+				requestResult(entryRequest),
+				requestResult(metadataRequest),
+				transactionComplete(transaction)
 			]);
 			return entry === void 0 && metadata === void 0 ? null : {
 				key,
@@ -6870,9 +6931,9 @@ var IndexedDBVerifiedRemoteStore = class {
 			const entryKeyRequest = transaction.objectStore(ENTRY_STORE).getKey(key);
 			const metadataRequest = transaction.objectStore(METADATA_STORE).get(key);
 			const [entryKey, metadata] = await Promise.all([
-				requestResult$1(entryKeyRequest),
-				requestResult$1(metadataRequest),
-				transactionComplete$1(transaction)
+				requestResult(entryKeyRequest),
+				requestResult(metadataRequest),
+				transactionComplete(transaction)
 			]);
 			if (entryKey === void 0 && metadata === void 0) return null;
 			return {
@@ -6949,7 +7010,7 @@ var IndexedDBVerifiedRemoteStore = class {
 				decide();
 			};
 			try {
-				await transactionComplete$1(transaction);
+				await transactionComplete(transaction);
 				completed = true;
 			} catch (error) {
 				if (signal?.aborted) throw abortError$1();
@@ -6976,7 +7037,7 @@ var IndexedDBVerifiedRemoteStore = class {
 					lastValidatedAt: validatedAt
 				});
 			};
-			await transactionComplete$1(transaction);
+			await transactionComplete(transaction);
 		} finally {
 			database.close();
 		}
@@ -7032,7 +7093,7 @@ var IndexedDBVerifiedRemoteStore = class {
 					cursor.continue();
 				};
 			});
-			await Promise.all([cursorFinished, transactionComplete$1(transaction)]);
+			await Promise.all([cursorFinished, transactionComplete(transaction)]);
 			return {
 				records,
 				nextKey,
@@ -7077,7 +7138,7 @@ var IndexedDBVerifiedRemoteStore = class {
 					cursor.continue();
 				};
 			});
-			await Promise.all([cursorFinished, transactionComplete$1(transaction)]);
+			await Promise.all([cursorFinished, transactionComplete(transaction)]);
 			return records;
 		} finally {
 			database.close();
@@ -7146,7 +7207,7 @@ var IndexedDBVerifiedRemoteStore = class {
 					deleteIfStillCandidate();
 				};
 			}
-			await transactionComplete$1(transaction);
+			await transactionComplete(transaction);
 			return {
 				entries: removedEntries,
 				bytes: removedBytes
@@ -7175,7 +7236,7 @@ var IndexedDBVerifiedRemoteStore = class {
 			};
 			transaction.objectStore(ENTRY_STORE).clear();
 			transaction.objectStore(METADATA_STORE).clear();
-			await transactionComplete$1(transaction);
+			await transactionComplete(transaction);
 			return revision;
 		} finally {
 			database.close();
@@ -7186,7 +7247,7 @@ var IndexedDBVerifiedRemoteStore = class {
 		try {
 			const transaction = database.transaction(INFO_STORE, "readonly");
 			const request = transaction.objectStore(INFO_STORE).get("revision");
-			const [result] = await Promise.all([requestResult$1(request), transactionComplete$1(transaction)]);
+			const [result] = await Promise.all([requestResult(request), transactionComplete(transaction)]);
 			return revisionValue(result);
 		} finally {
 			database.close();
@@ -7197,7 +7258,7 @@ var IndexedDBVerifiedRemoteStore = class {
 		try {
 			const transaction = database.transaction(INFO_STORE, "readonly");
 			const request = transaction.objectStore(INFO_STORE).get("cleanup");
-			const [result] = await Promise.all([requestResult$1(request), transactionComplete$1(transaction)]);
+			const [result] = await Promise.all([requestResult(request), transactionComplete(transaction)]);
 			if (!result || typeof result !== "object" || Array.isArray(result)) return null;
 			const candidate = result;
 			if (candidate.key !== "cleanup" || !Number.isFinite(candidate.lastCleanupAt) || !Number.isSafeInteger(candidate.removedEntries) || Number(candidate.removedEntries) < 0 || !Number.isSafeInteger(candidate.removedBytes) || Number(candidate.removedBytes) < 0) return null;
@@ -7211,7 +7272,7 @@ var IndexedDBVerifiedRemoteStore = class {
 		try {
 			const transaction = database.transaction(INFO_STORE, "readwrite");
 			transaction.objectStore(INFO_STORE).put(record);
-			await transactionComplete$1(transaction);
+			await transactionComplete(transaction);
 		} finally {
 			database.close();
 		}
@@ -8083,19 +8144,6 @@ async function readSourceAsset(source, asset, subtleCrypto, signal) {
 	assertNotAborted(signal);
 	return files;
 }
-function requestResult(request) {
-	return new Promise((resolve, reject) => {
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () => reject(request.error ?? /* @__PURE__ */ new Error("IndexedDB request failed."));
-	});
-}
-function transactionComplete(transaction) {
-	return new Promise((resolve, reject) => {
-		transaction.oncomplete = () => resolve();
-		transaction.onerror = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction failed."));
-		transaction.onabort = () => reject(transaction.error ?? /* @__PURE__ */ new Error("IndexedDB transaction was aborted."));
-	});
-}
 function isDomException(error, name) {
 	return error instanceof DOMException && error.name === name;
 }
@@ -8108,51 +8156,29 @@ function mapStorageError(error, operation, signal) {
 }
 async function openDatabase(options, signal) {
 	assertNotAborted(signal);
-	const indexedDB = options.indexedDB;
-	if (!indexedDB || typeof indexedDB.open !== "function") throw sessionError("ASSET_SESSION_BINARY_INDEXEDDB_UNAVAILABLE", "IndexedDB is not available for session binary backing.");
-	let request;
-	try {
-		request = indexedDB.open(options.databaseName, DATABASE_VERSION);
-	} catch (error) {
-		throw sessionError("ASSET_SESSION_BINARY_INDEXEDDB_UNAVAILABLE", "The session binary IndexedDB database could not be opened.", error);
-	}
-	return new Promise((resolve, reject) => {
-		let settled = false;
-		const abort = () => rejectOnce(abortError(signal?.reason));
-		const rejectOnce = (error) => {
-			if (settled) return;
-			settled = true;
-			signal?.removeEventListener("abort", abort);
-			reject(error);
-		};
-		signal?.addEventListener("abort", abort, { once: true });
-		if (signal?.aborted) abort();
-		request.onupgradeneeded = () => {
-			const database = request.result;
-			let sessions;
-			if (!database.objectStoreNames.contains(SESSION_STORE)) sessions = database.createObjectStore(SESSION_STORE, { keyPath: "sessionId" });
-			else sessions = request.transaction.objectStore(SESSION_STORE);
+	return await openIndexedDB({
+		factory: options.indexedDB,
+		name: options.databaseName,
+		version: DATABASE_VERSION,
+		signal,
+		abortError: (reason) => abortError(reason),
+		closeOnVersionChange: false,
+		upgrade(database, transaction) {
+			const sessions = database.objectStoreNames.contains(SESSION_STORE) ? transaction.objectStore(SESSION_STORE) : database.createObjectStore(SESSION_STORE, { keyPath: "sessionId" });
 			if (!sessions.indexNames.contains(EXPIRES_AT_INDEX)) sessions.createIndex(EXPIRES_AT_INDEX, "expiresAt");
-			let bundles;
-			if (!database.objectStoreNames.contains(BUNDLE_STORE)) bundles = database.createObjectStore(BUNDLE_STORE, { keyPath: [
+			const bundles = database.objectStoreNames.contains(BUNDLE_STORE) ? transaction.objectStore(BUNDLE_STORE) : database.createObjectStore(BUNDLE_STORE, { keyPath: [
 				"sessionId",
 				"namespace",
 				"name"
 			] });
-			else bundles = request.transaction.objectStore(BUNDLE_STORE);
 			if (!bundles.indexNames.contains(SESSION_ID_INDEX)) bundles.createIndex(SESSION_ID_INDEX, "sessionId");
-		};
-		request.onsuccess = () => {
-			if (settled) {
-				request.result.close();
-				return;
-			}
-			settled = true;
-			signal?.removeEventListener("abort", abort);
-			resolve(request.result);
-		};
-		request.onerror = () => rejectOnce(sessionError("ASSET_SESSION_BINARY_INDEXEDDB_UNAVAILABLE", "The session binary IndexedDB open request failed.", request.error));
-		request.onblocked = () => rejectOnce(sessionError("ASSET_SESSION_BINARY_INDEXEDDB_BLOCKED", "The session binary IndexedDB open request was blocked."));
+		},
+		errors: {
+			unavailable: () => sessionError("ASSET_SESSION_BINARY_INDEXEDDB_UNAVAILABLE", "IndexedDB is not available for session binary backing."),
+			openThrew: (cause) => sessionError("ASSET_SESSION_BINARY_INDEXEDDB_UNAVAILABLE", "The session binary IndexedDB database could not be opened.", cause),
+			requestFailed: (cause) => sessionError("ASSET_SESSION_BINARY_INDEXEDDB_UNAVAILABLE", "The session binary IndexedDB open request failed.", cause),
+			blocked: () => sessionError("ASSET_SESSION_BINARY_INDEXEDDB_BLOCKED", "The session binary IndexedDB open request was blocked.")
+		}
 	});
 }
 function sessionRecordIsValid(value, sessionId) {
